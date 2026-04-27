@@ -1,0 +1,163 @@
+:root {
+  --bg-1: #f7f9fc;
+  --bg-2: #dfe9f3;
+  --surface: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --accent: #0f766e;
+  --accent-dark: #115e59;
+  --line: #e5e7eb;
+  --danger: #b91c1c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Manrope", "Segoe UI", sans-serif;
+  color: var(--text);
+  background: linear-gradient(140deg, var(--bg-1), var(--bg-2));
+}
+
+.auth-page {
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.08);
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.8rem;
+}
+
+.subtitle {
+  margin: 8px 0 20px;
+  color: var(--muted);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+label {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 1rem;
+}
+
+input:focus {
+  outline: 2px solid rgba(15, 118, 110, 0.25);
+  border-color: var(--accent);
+}
+
+button {
+  margin-top: 8px;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.98rem;
+  font-weight: 600;
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+button:hover {
+  background: var(--accent-dark);
+}
+
+.message {
+  min-height: 22px;
+  margin: 14px 0 0;
+  color: var(--danger);
+  font-size: 0.92rem;
+}
+
+.hint-box {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px dashed #d1d5db;
+  background: #f8fafc;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hint-box p {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+}
+
+.hint-box code {
+  background: #eef2f7;
+  border-radius: 6px;
+  padding: 3px 6px;
+  width: fit-content;
+}
+
+.dashboard-page {
+  padding: 20px;
+}
+
+.dashboard-header {
+  max-width: 980px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 20px;
+}
+
+.dashboard-content {
+  max-width: 980px;
+  margin: 18px auto 0;
+  min-height: 320px;
+  border-radius: 14px;
+  border: 1px dashed #cbd5e1;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.logout-btn {
+  margin: 0;
+  width: auto;
+}
+
+@media (max-width: 640px) {
+  .dashboard-header {
+    gap: 12px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .logout-btn {
+    width: 100%;
+  }
+}

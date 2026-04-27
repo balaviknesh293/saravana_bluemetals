@@ -1,0 +1,94 @@
+{
+  "Materials": {
+    "headers": [
+      "Material ID",
+      "Name",
+      "Is Active"
+    ],
+    "rows": [
+      [
+        "MAT0006",
+        "Boulder",
+        "TRUE"
+      ],
+      [
+        "MAT0007",
+        "Soling",
+        "TRUE"
+      ],
+      [
+        "MAT0007",
+        "P Sand",
+        "TRUE"
+      ],
+      [
+        "MAT0008",
+        "Dust",
+        "TRUE"
+      ],
+      [
+        "MAT0009",
+        "Cool Dust",
+        "TRUE"
+      ],
+      [
+        "MAT0010",
+        "Boulder",
+        "TRUE"
+      ],
+      [
+        "MAT0011",
+        "Soling",
+        "TRUE"
+      ]
+    ]
+  },
+  "Customers": {
+    "headers": [
+      "Customer ID",
+      "Name",
+      "Phone",
+      "Address",
+      "Balance"
+    ],
+    "rows": []
+  },
+  "Vehicles": {
+    "headers": [
+      "Vehicle ID",
+      "Vehicle Number"
+    ],
+    "rows": []
+  },
+  "Sales": {
+    "headers": [
+      "Date",
+      "Slip No",
+      "Sale ID",
+      "Customer ID",
+      "Vehicle",
+      "Material",
+      "Quantity",
+      "Rate",
+      "Amount",
+      "GST",
+      "Total",
+      "Balance"
+    ],
+    "rows": []
+  },
+  "Ledger": {
+    "headers": [
+      "Date",
+      "Ledger ID",
+      "Customer ID",
+      "Credit",
+      "Debit",
+      "Balance",
+      "Reference",
+      "Type",
+      "Notes"
+    ],
+    "rows": []
+  }
+}

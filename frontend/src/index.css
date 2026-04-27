@@ -1,0 +1,57 @@
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Manrope:wght@400;500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --app-bg: #f4f8f6;
+  --card-bg: rgba(255, 255, 255, 0.85);
+  --text-main: #10372e;
+}
+
+.dark {
+  --app-bg: #081b1a;
+  --card-bg: rgba(8, 27, 26, 0.7);
+  --text-main: #dcfce7;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Manrope", sans-serif;
+  background:
+    radial-gradient(circle at 15% 15%, rgba(29, 140, 106, 0.22), transparent 30%),
+    radial-gradient(circle at 85% 85%, rgba(190, 242, 100, 0.18), transparent 35%),
+    var(--app-bg);
+  color: var(--text-main);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "Sora", sans-serif;
+}
+
+.glass {
+  @apply border border-emerald-100/70 bg-white/85 backdrop-blur-xl dark:border-emerald-900/60 dark:bg-emerald-950/55;
+}
+
+.input {
+  @apply w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-emerald-900 outline-none transition focus:border-emerald-500 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-50;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition;
+}
+
+.btn-primary {
+  @apply btn bg-emerald-600 text-white hover:bg-emerald-500;
+}
+
+.btn-secondary {
+  @apply btn border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100 dark:hover:bg-emerald-900/50;
+}
