@@ -29,8 +29,14 @@ app.use(morgan("dev"));
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+const frontendDistPath = path.resolve(__dirname, "../../frontend/dist");
+
 app.get("/", (_req, res) => {
-  res.status(200).json({
+  if (fs.existsSync(frontendDistPath)) {
+    return res.sendFile(path.join(frontendDistPath, "index.html"));
+  }
+
+  return res.status(200).json({
     success: true,
     name: "Saravana Blue Metals ERP API",
     health: "/api/health"
@@ -51,7 +57,6 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/system", systemRoutes);
 
-const frontendDistPath = path.resolve(__dirname, "../../frontend/dist");
 if (fs.existsSync(frontendDistPath)) {
   app.use(express.static(frontendDistPath));
 
