@@ -2,8 +2,12 @@ import axios from "axios";
 
 import { getToken, clearToken } from "../utils/storage";
 
+const resolvedApiBase =
+  import.meta.env.VITE_API_URL ||
+  (typeof window !== "undefined" ? window.location.origin : "http://localhost:5000");
+
 const api = axios.create({
-  baseURL: `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api`
+  baseURL: `${resolvedApiBase}/api`
 });
 
 api.interceptors.request.use((config) => {
