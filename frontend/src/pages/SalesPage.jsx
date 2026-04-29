@@ -9,10 +9,12 @@ function SalesPage() {
   const [materials, setMaterials] = useState([]);
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
+    transactionType: "sale",
     slipNo: "",
     customerId: "",
     vehicleId: "",
     materialId: "",
+    product: "",
     quantity: "",
     rate: "",
     gst: ""
@@ -34,6 +36,15 @@ function SalesPage() {
 
   async function submit(event) {
     event.preventDefault();
+    if (form.transactionType === "sale" && (!form.vehicleId || !form.materialId)) {
+      toast.error("Vehicle and Material are required for Sale");
+      return;
+    }
+    if (form.transactionType === "purchase" && !form.product.trim() && !form.materialId) {
+      toast.error("Provide Product or select Material for Purchase");
+      return;
+    }
+
     try {
       await api.post("/sales", {
         ...form,
@@ -41,10 +52,11 @@ function SalesPage() {
         rate: Number(form.rate || 0),
         gst: hasGst ? Number(form.gst || 0) : null
       });
-      toast.success("Sale recorded");
+      toast.success(form.transactionType === "sale" ? "Sale recorded" : "Purchase recorded");
       setForm((current) => ({
         ...current,
         slipNo: "",
+        product: "",
         quantity: "",
         rate: "",
         gst: ""
@@ -57,6 +69,10 @@ function SalesPage() {
   return (
     <form className="glass grid gap-3 rounded-2xl p-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={submit}>
       <input className="input" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} required />
+      <select className="input" value={form.transactionType} onChange={(e) => setForm((f) => ({ ...f, transactionType: e.target.value }))}>
+        <option value="sale">Sale</option>
+        <option value="purchase">Purchase</option>
+      </select>
       <input className="input" placeholder="Slip Number" value={form.slipNo} onChange={(e) => setForm((f) => ({ ...f, slipNo: e.target.value }))} required />
 
       <select className="input" value={form.customerId} onChange={(e) => setForm((f) => ({ ...f, customerId: e.target.value }))} required>
@@ -66,19 +82,26 @@ function SalesPage() {
         ))}
       </select>
 
-      <select className="input" value={form.vehicleId} onChange={(e) => setForm((f) => ({ ...f, vehicleId: e.target.value }))} required>
+      <select className="input" value={form.vehicleId} onChange={(e) => setForm((f) => ({ ...f, vehicleId: e.target.value }))} required={form.transactionType === "sale"}>
         <option value="">Select Vehicle</option>
         {vehicles.map((vehicle) => (
           <option key={vehicle.vehicleId} value={vehicle.vehicleId}>{vehicle.vehicleNumber}</option>
         ))}
       </select>
 
-      <select className="input" value={form.materialId} onChange={(e) => setForm((f) => ({ ...f, materialId: e.target.value }))} required>
+      <select className="input" value={form.materialId} onChange={(e) => setForm((f) => ({ ...f, materialId: e.target.value }))} required={form.transactionType === "sale"}>
         <option value="">Select Material</option>
         {materials.map((material) => (
           <option key={material.materialId} value={material.materialId}>{material.name}</option>
         ))}
       </select>
+
+      <input
+        className="input"
+        placeholder={form.transactionType === "purchase" ? "Product (required if no Material)" : "Product (optional)"}
+        value={form.product}
+        onChange={(e) => setForm((f) => ({ ...f, product: e.target.value }))}
+      />
 
       <input className="input" type="number" step="0.01" placeholder="Quantity" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))} required />
       <input className="input" type="number" step="0.01" placeholder="Rate per Unit" value={form.rate} onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} required />
@@ -94,7 +117,9 @@ function SalesPage() {
         <p className="text-lg font-semibold">Rs {total.toFixed(2)}</p>
       </div>
 
-      <button className="btn-primary xl:col-span-2" type="submit">Save Sales Entry</button>
+      <button className="btn-primary xl:col-span-2" type="submit">
+        {form.transactionType === "sale" ? "Save Sales Entry" : "Save Purchase Entry"}
+      </button>
     </form>
   );
 }

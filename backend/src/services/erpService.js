@@ -76,7 +76,13 @@ async function deleteCustomer(customerId) {
   const target = rows.find((row) => row["Customer ID"] === customerId);
   if (!target) throw new ApiError(404, "Customer not found.");
 
-  await sheetsService.deleteRow(SHEETS.CUSTOMERS, target.__rowNumber);
+  const matches = rows
+    .filter((row) => row["Customer ID"] === customerId)
+    .sort((a, b) => b.__rowNumber - a.__rowNumber);
+
+  for (const row of matches) {
+    await sheetsService.deleteRow(SHEETS.CUSTOMERS, row.__rowNumber);
+  }
 }
 
 async function getVehicles() {
@@ -123,7 +129,17 @@ async function deleteVehicle(vehicleId) {
   const target = rows.find((row) => row["Vehicle ID"] === vehicleId);
   if (!target) throw new ApiError(404, "Vehicle not found.");
 
-  await sheetsService.deleteRow(SHEETS.VEHICLES, target.__rowNumber);
+  const normalizedVehicle = String(target["Vehicle Number"] || "").trim().toLowerCase();
+  const matches = rows
+    .filter((row) => {
+      if (row["Vehicle ID"] === vehicleId) return true;
+      return String(row["Vehicle Number"] || "").trim().toLowerCase() === normalizedVehicle;
+    })
+    .sort((a, b) => b.__rowNumber - a.__rowNumber);
+
+  for (const row of matches) {
+    await sheetsService.deleteRow(SHEETS.VEHICLES, row.__rowNumber);
+  }
 }
 
 async function getMaterials() {
@@ -249,14 +265,39 @@ async function createSale(payload) {
     sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES])
   ]);
 
+  const transactionType = String(payload.transactionType || "sale").toLowerCase();
+  if (!["sale", "purchase"].includes(transactionType)) {
+    throw new ApiError(400, "transactionType must be either sale or purchase.");
+  }
+
   const customer = customers.find((item) => item.customerId === payload.customerId);
   if (!customer) throw new ApiError(404, "Customer not found.");
 
-  const vehicle = vehicles.find((item) => item.vehicleId === payload.vehicleId);
-  if (!vehicle) throw new ApiError(404, "Vehicle not found.");
+  let vehicle = null;
+  let material = null;
+  let product = String(payload.product || "").trim();
 
-  const material = materials.find((item) => item.materialId === payload.materialId && item.isActive);
-  if (!material) throw new ApiError(404, "Material not found or inactive.");
+  if (transactionType === "sale") {
+    vehicle = vehicles.find((item) => item.vehicleId === payload.vehicleId);
+    if (!vehicle) throw new ApiError(404, "Vehicle not found.");
+
+    material = materials.find((item) => item.materialId === payload.materialId && item.isActive);
+    if (!material) throw new ApiError(404, "Material not found or inactive.");
+
+    if (!product) {
+      product = material.name;
+    }
+  } else {
+    if (payload.vehicleId) {
+      vehicle = vehicles.find((item) => item.vehicleId === payload.vehicleId) || null;
+    }
+    if (payload.materialId) {
+      material = materials.find((item) => item.materialId === payload.materialId && item.isActive) || null;
+    }
+    if (!product) {
+      product = material?.name || "General Purchase";
+    }
+  }
 
   const quantity = roundTo2(toNumber(payload.quantity));
   const rate = roundTo2(toNumber(payload.rate));
@@ -268,7 +309,9 @@ async function createSale(payload) {
   const total = roundTo2(amount + (gst ?? 0));
 
   const oldBalance = roundTo2(toNumber(customer.balance));
-  const newBalance = roundTo2(oldBalance + total);
+  const credit = transactionType === "sale" ? total : 0;
+  const debit = transactionType === "purchase" ? total : 0;
+  const newBalance = roundTo2(oldBalance + credit - debit);
 
   const saleId = createId("SAL", salesRows, "Sale ID");
 
@@ -276,9 +319,11 @@ async function createSale(payload) {
     Date: date,
     "Slip No": payload.slipNo,
     "Sale ID": saleId,
+    Type: transactionType.toUpperCase(),
     "Customer ID": customer.customerId,
-    Vehicle: vehicle.vehicleNumber,
-    Material: material.name,
+    Product: product,
+    Vehicle: vehicle?.vehicleNumber || "",
+    Material: material?.name || "",
     Quantity: quantity,
     Rate: rate,
     Amount: amount,
@@ -290,24 +335,29 @@ async function createSale(payload) {
   await createLedgerEntry({
     date,
     customerId: customer.customerId,
-    credit: total,
-    debit: 0,
+    credit,
+    debit,
     balance: newBalance,
     reference: payload.slipNo,
-    type: "SALE",
-    notes: `${material.name} (${quantity} units)`
+    type: transactionType.toUpperCase(),
+    notes:
+      transactionType === "sale"
+        ? `${product} (${quantity} units)`
+        : `Purchase: ${product} (${quantity} units)`
   });
 
   await updateCustomerBalance(customer.customerId, newBalance);
 
   return {
     saleId,
+    type: transactionType,
     date,
     slipNo: payload.slipNo,
     customerId: customer.customerId,
     customerName: customer.name,
     vehicle: vehicle.vehicleNumber,
-    material: material.name,
+    product,
+    material: material?.name || "",
     quantity,
     rate,
     amount,
@@ -329,8 +379,10 @@ async function getSales(date) {
     date: row.Date,
     slipNo: row["Slip No"],
     saleId: row["Sale ID"],
+    type: row.Type || "SALE",
     customerId: row["Customer ID"],
     customerName: customerMap[row["Customer ID"]] || row["Customer ID"],
+    product: row.Product || row.Material || "",
     vehicle: row.Vehicle,
     material: row.Material,
     quantity: roundTo2(toNumber(row.Quantity)),
