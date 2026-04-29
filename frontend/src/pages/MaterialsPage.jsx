@@ -65,10 +65,10 @@ function MaterialsPage() {
             label: "Actions",
             render: (row) => (
               <div className="flex gap-2">
-                <button className="btn-secondary !px-2 !py-1" onClick={() => { setName(row.name); setEditingId(row.materialId); }}>
+                <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => { setName(row.name); setEditingId(row.materialId); }}>
                   Edit
                 </button>
-                <button className="btn-secondary !px-2 !py-1" onClick={() => remove(row.materialId)}>
+                <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => remove(row.materialId)}>
                   Delete
                 </button>
               </div>

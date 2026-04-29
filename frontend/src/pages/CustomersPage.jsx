@@ -76,6 +76,7 @@ function CustomersPage() {
             render: (row) => (
               <div className="flex gap-2">
                 <button
+                  type="button"
                   className="btn-secondary !px-2 !py-1"
                   onClick={() => {
                     setForm({
@@ -89,7 +90,7 @@ function CustomersPage() {
                 >
                   Edit
                 </button>
-                <button className="btn-secondary !px-2 !py-1" onClick={() => remove(row.customerId)}>
+                <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => remove(row.customerId)}>
                   Delete
                 </button>
               </div>

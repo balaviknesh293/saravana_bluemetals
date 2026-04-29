@@ -64,10 +64,10 @@ function VehiclesPage() {
             label: "Actions",
             render: (row) => (
               <div className="flex gap-2">
-                <button className="btn-secondary !px-2 !py-1" onClick={() => { setVehicleNumber(row.vehicleNumber); setEditingId(row.vehicleId); }}>
+                <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => { setVehicleNumber(row.vehicleNumber); setEditingId(row.vehicleId); }}>
                   Edit
                 </button>
-                <button className="btn-secondary !px-2 !py-1" onClick={() => remove(row.vehicleId)}>
+                <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => remove(row.vehicleId)}>
                   Delete
                 </button>
               </div>

@@ -191,7 +191,17 @@ async function deleteMaterial(materialId) {
   const target = rows.find((row) => row["Material ID"] === materialId);
   if (!target) throw new ApiError(404, "Material not found.");
 
-  await sheetsService.deleteRow(SHEETS.MATERIALS, target.__rowNumber);
+  const normalizedName = String(target.Name || "").trim().toLowerCase();
+  const matches = rows
+    .filter((row) => {
+      if (row["Material ID"] === materialId) return true;
+      return String(row.Name || "").trim().toLowerCase() === normalizedName;
+    })
+    .sort((a, b) => b.__rowNumber - a.__rowNumber);
+
+  for (const row of matches) {
+    await sheetsService.deleteRow(SHEETS.MATERIALS, row.__rowNumber);
+  }
 }
 
 async function updateCustomerBalance(customerId, balance) {
