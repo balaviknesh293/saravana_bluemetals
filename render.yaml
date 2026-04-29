@@ -1,17 +1,18 @@
 services:
   - type: web
-    name: saravana-sales-api
+    name: saravana-bluemetals
     runtime: node
     plan: free
-    rootDir: auth-dashboard-starter/backend
-    buildCommand: npm ci
+    buildCommand: npm run build:all
     startCommand: npm start
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: 20
+        value: "20"
+      - key: NODE_ENV
+        value: production
       - key: PORT
-        value: 5000
+        value: "5000"
       - key: FRONTEND_URL
         sync: false
       - key: JWT_SECRET
@@ -32,19 +33,5 @@ services:
         value: "false"
       - key: ALLOW_LOCAL_FALLBACK_ON_BOOTSTRAP_ERROR
         value: "true"
-
-  - type: web
-    name: saravana-sales-frontend
-    runtime: static
-    plan: free
-    rootDir: auth-dashboard-starter/frontend
-    buildCommand: npm ci && npm run build
-    staticPublishPath: ./dist
-    autoDeploy: true
-    envVars:
-      - key: VITE_API_URL
-        sync: false
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
+      - key: SHEETS_ROW_CACHE_TTL_MS
+        value: "8000"
