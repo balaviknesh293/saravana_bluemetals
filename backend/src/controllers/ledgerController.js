@@ -1,5 +1,5 @@
 const asyncHandler = require("../utils/asyncHandler");
-const { recordPayment, getLedger } = require("../services/erpService");
+const { recordPayment, addLedgerEntry, getLedger } = require("../services/erpService");
 
 const postPayment = asyncHandler(async (req, res) => {
   const payment = await recordPayment(req.body);
@@ -11,4 +11,9 @@ const customerLedger = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, ledger });
 });
 
-module.exports = { postPayment, customerLedger };
+const postLedgerEntry = asyncHandler(async (req, res) => {
+  const entry = await addLedgerEntry(req.body);
+  res.status(201).json({ success: true, message: "Ledger entry recorded.", entry });
+});
+
+module.exports = { postPayment, customerLedger, postLedgerEntry };

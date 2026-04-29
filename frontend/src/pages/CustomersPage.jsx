@@ -53,6 +53,32 @@ function CustomersPage() {
     }
   }
 
+  async function adjustBalance(customerId, entryType) {
+    const amountRaw = window.prompt(`Enter ${entryType} amount`);
+    if (amountRaw === null) return;
+    const amount = Number(amountRaw);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Enter a valid amount");
+      return;
+    }
+
+    const notes = window.prompt("Optional notes") || "";
+
+    try {
+      await api.post("/ledger/entry", {
+        customerId,
+        amount,
+        entryType,
+        notes,
+        reference: `CUSTOMER_${entryType.toUpperCase()}`
+      });
+      toast.success(`${entryType[0].toUpperCase()}${entryType.slice(1)} recorded`);
+      loadCustomers();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to record transaction");
+    }
+  }
+
   return (
     <div className="space-y-4">
       <form className="glass grid gap-3 rounded-2xl p-4 md:grid-cols-5" onSubmit={submit}>
@@ -92,6 +118,12 @@ function CustomersPage() {
                 </button>
                 <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => remove(row.customerId)}>
                   Delete
+                </button>
+                <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => adjustBalance(row.customerId, "credit")}>
+                  Credit
+                </button>
+                <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => adjustBalance(row.customerId, "debit")}>
+                  Debit
                 </button>
               </div>
             )

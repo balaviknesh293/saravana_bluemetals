@@ -377,6 +377,50 @@ async function recordPayment(payload) {
   };
 }
 
+async function addLedgerEntry(payload) {
+  const date = formatDateISO(payload.date || new Date());
+  if (!date) throw new ApiError(400, "Invalid date.");
+
+  const customer = await getCustomerById(payload.customerId);
+  if (!customer) throw new ApiError(404, "Customer not found.");
+
+  const amount = roundTo2(toNumber(payload.amount));
+  if (amount <= 0) throw new ApiError(400, "Amount must be greater than 0.");
+
+  const entryType = String(payload.entryType || "").toLowerCase();
+  if (!["credit", "debit"].includes(entryType)) {
+    throw new ApiError(400, "entryType must be either 'credit' or 'debit'.");
+  }
+
+  const credit = entryType === "credit" ? amount : 0;
+  const debit = entryType === "debit" ? amount : 0;
+
+  const oldBalance = roundTo2(toNumber(customer.balance));
+  const newBalance = roundTo2(oldBalance + credit - debit);
+
+  await createLedgerEntry({
+    date,
+    customerId: payload.customerId,
+    credit,
+    debit,
+    balance: newBalance,
+    reference: payload.reference || (entryType === "credit" ? "CREDIT" : "DEBIT"),
+    type: entryType.toUpperCase(),
+    notes: payload.notes || ""
+  });
+
+  await updateCustomerBalance(payload.customerId, newBalance);
+
+  return {
+    customerId: payload.customerId,
+    date,
+    entryType,
+    previousBalance: oldBalance,
+    transactionAmount: amount,
+    balance: newBalance
+  };
+}
+
 async function getLedger(customerId) {
   const rows = await sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER]);
   const customers = await getCustomers();
@@ -503,6 +547,7 @@ module.exports = {
   createSale,
   getSales,
   recordPayment,
+  addLedgerEntry,
   getLedger,
   getReport,
   getDashboardSummary
