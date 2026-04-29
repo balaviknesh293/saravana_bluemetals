@@ -309,8 +309,18 @@ async function createSale(payload) {
   const total = roundTo2(amount + (gst ?? 0));
 
   const oldBalance = roundTo2(toNumber(customer.balance));
-  const credit = transactionType === "sale" ? total : 0;
-  const debit = transactionType === "purchase" ? total : 0;
+  const balanceEffect = String(payload.balanceEffect || (transactionType === "purchase" ? "add" : "add")).toLowerCase();
+  let credit = 0;
+  let debit = 0;
+
+  if (transactionType === "sale") {
+    credit = total;
+  } else if (balanceEffect === "subtract") {
+    debit = total;
+  } else {
+    credit = total;
+  }
+
   const newBalance = roundTo2(oldBalance + credit - debit);
 
   const saleId = createId("SAL", salesRows, "Sale ID");
@@ -351,6 +361,7 @@ async function createSale(payload) {
   return {
     saleId,
     type: transactionType,
+    balanceEffect,
     date,
     slipNo: payload.slipNo,
     customerId: customer.customerId,

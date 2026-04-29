@@ -6,6 +6,10 @@ const saleCreateValidator = [
     .optional({ values: "falsy" })
     .isIn(["sale", "purchase", "SALE", "PURCHASE"])
     .withMessage("transactionType must be sale or purchase."),
+  body("balanceEffect")
+    .optional({ values: "falsy" })
+    .isIn(["add", "subtract", "ADD", "SUBTRACT"])
+    .withMessage("balanceEffect must be add or subtract."),
   body("slipNo").trim().notEmpty().withMessage("Slip number is required."),
   body("customerId").trim().notEmpty().withMessage("Customer ID is required."),
   body("vehicleId").optional({ values: "falsy" }).trim(),

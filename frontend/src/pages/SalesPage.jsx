@@ -10,6 +10,7 @@ function SalesPage() {
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
     transactionType: "sale",
+    balanceEffect: "add",
     slipNo: "",
     customerId: "",
     vehicleId: "",
@@ -73,6 +74,12 @@ function SalesPage() {
         <option value="sale">Sale</option>
         <option value="purchase">Purchase</option>
       </select>
+      {form.transactionType === "purchase" ? (
+        <select className="input" value={form.balanceEffect} onChange={(e) => setForm((f) => ({ ...f, balanceEffect: e.target.value }))}>
+          <option value="add">Add Amount to Customer Balance</option>
+          <option value="subtract">Subtract Amount from Customer Balance</option>
+        </select>
+      ) : null}
       <input className="input" placeholder="Slip Number" value={form.slipNo} onChange={(e) => setForm((f) => ({ ...f, slipNo: e.target.value }))} required />
 
       <select className="input" value={form.customerId} onChange={(e) => setForm((f) => ({ ...f, customerId: e.target.value }))} required>
