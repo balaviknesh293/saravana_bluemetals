@@ -17,8 +17,8 @@ const editVehicle = asyncHandler(async (req, res) => {
 });
 
 const removeVehicle = asyncHandler(async (req, res) => {
-  await deleteVehicle(req.params.vehicleId);
-  res.status(200).json({ success: true, message: "Vehicle deleted." });
+  await deleteVehicle(req.params.vehicleId, { cascade: true });
+  res.status(200).json({ success: true, message: "Vehicle and linked sales deleted." });
 });
 
 module.exports = { listVehicles, createVehicle, editVehicle, removeVehicle };

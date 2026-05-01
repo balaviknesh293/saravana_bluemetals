@@ -15,6 +15,7 @@ class SheetsService {
     this.localStorePath = path.resolve(__dirname, "../data/localSheets.json");
     this.localStoreLock = Promise.resolve();
     this.knownSheets = null;
+    this.sheetIdMap = null;
     this.ensuredHeaders = new Set();
     this.rowCache = new Map();
     this.rowCacheTtlMs = Number(process.env.SHEETS_ROW_CACHE_TTL_MS || 8000);
@@ -110,10 +111,19 @@ class SheetsService {
   async loadKnownSheets() {
     if (this.knownSheets) return this.knownSheets;
     const meta = await this.client.spreadsheets.get({ spreadsheetId: this.spreadsheetId });
+    this.sheetIdMap = new Map(
+      (meta.data.sheets || []).map((sheet) => [String(sheet.properties?.title || ""), sheet.properties?.sheetId])
+    );
     this.knownSheets = new Set(
       (meta.data.sheets || []).map((sheet) => String(sheet.properties?.title || ""))
     );
     return this.knownSheets;
+  }
+
+  async getSheetId(sheetName) {
+    await this.init();
+    await this.loadKnownSheets();
+    return this.sheetIdMap?.get(sheetName);
   }
 
   async ensureSheetWithHeaders(sheetName, headers) {
@@ -262,11 +272,8 @@ class SheetsService {
       return;
     }
 
-    await this.init();
-
-    const meta = await this.client.spreadsheets.get({ spreadsheetId: this.spreadsheetId });
-    const sheet = (meta.data.sheets || []).find((item) => item.properties?.title === sheetName);
-    if (!sheet) return;
+    const sheetId = await this.getSheetId(sheetName);
+    if (sheetId === undefined) return;
 
     await this.client.spreadsheets.batchUpdate({
       spreadsheetId: this.spreadsheetId,
@@ -275,7 +282,7 @@ class SheetsService {
           {
             deleteDimension: {
               range: {
-                sheetId: sheet.properties.sheetId,
+                sheetId,
                 dimension: "ROWS",
                 startIndex: rowNumber - 1,
                 endIndex: rowNumber
@@ -285,6 +292,56 @@ class SheetsService {
         ]
       }
     });
+    this.invalidateRowCache(sheetName);
+  }
+
+  async deleteRows(sheetName, rowNumbers) {
+    const normalized = Array.from(
+      new Set((rowNumbers || []).map((value) => Number(value)).filter((value) => Number.isInteger(value) && value >= 2))
+    ).sort((a, b) => b - a);
+
+    if (!normalized.length) return;
+
+    if (this.useLocalStore) {
+      await this.withLocalStoreLock(async () => {
+        const store = await this.readLocalStoreUnsafe();
+        if (!Array.isArray(store[sheetName]?.rows)) return;
+        for (const rowNumber of normalized) {
+          const index = rowNumber - 2;
+          if (index >= 0 && index < store[sheetName].rows.length) {
+            store[sheetName].rows.splice(index, 1);
+          }
+        }
+        await this.writeLocalStoreUnsafe(store);
+      });
+      return;
+    }
+
+    // Google Sheets row-level deleteDimension can become unreliable under heavy churn.
+    // Deterministic approach: read all data rows, filter out target row numbers, then rewrite.
+    const response = await this.client.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: `${sheetName}!A2:ZZ`
+    });
+
+    const values = response.data.values || [];
+    const deleteSet = new Set(normalized);
+    const kept = values.filter((_, index) => !deleteSet.has(index + 2));
+
+    await this.client.spreadsheets.values.clear({
+      spreadsheetId: this.spreadsheetId,
+      range: `${sheetName}!A2:ZZ`
+    });
+
+    if (kept.length) {
+      await this.client.spreadsheets.values.update({
+        spreadsheetId: this.spreadsheetId,
+        range: `${sheetName}!A2`,
+        valueInputOption: "RAW",
+        requestBody: { values: kept }
+      });
+    }
+
     this.invalidateRowCache(sheetName);
   }
 

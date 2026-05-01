@@ -1,6 +1,7 @@
 const dotenv = require("dotenv");
+const path = require("path");
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const app = require("./app");
 const { bootstrapSheets } = require("./services/bootstrapService");

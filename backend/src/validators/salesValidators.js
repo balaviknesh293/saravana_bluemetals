@@ -27,4 +27,6 @@ const salesByDateValidator = [
   param("date").isISO8601().withMessage("Date should be in YYYY-MM-DD format.")
 ];
 
-module.exports = { saleCreateValidator, salesByDateValidator };
+const saleIdValidator = [param("saleId").trim().notEmpty().withMessage("Sale ID is required.")];
+
+module.exports = { saleCreateValidator, salesByDateValidator, saleIdValidator };

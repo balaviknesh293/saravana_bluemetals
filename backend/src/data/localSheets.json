@@ -7,13 +7,33 @@
     ],
     "rows": [
       [
-        "MAT0006",
-        "Boulder",
+        "MAT0001",
+        "3/4 Jalli",
         "TRUE"
       ],
       [
-        "MAT0007",
-        "Soling",
+        "MAT0002",
+        "1 1/2 Jalli",
+        "TRUE"
+      ],
+      [
+        "MAT0003",
+        "M Sand",
+        "TRUE"
+      ],
+      [
+        "MAT0004",
+        "P Sand",
+        "TRUE"
+      ],
+      [
+        "MAT0005",
+        "Dust",
+        "TRUE"
+      ],
+      [
+        "MAT0006",
+        "Cool Dust",
         "TRUE"
       ],
       [
@@ -65,7 +85,9 @@
       "Date",
       "Slip No",
       "Sale ID",
+      "Type",
       "Customer ID",
+      "Product",
       "Vehicle",
       "Material",
       "Quantity",

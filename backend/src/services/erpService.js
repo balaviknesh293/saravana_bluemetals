@@ -5,6 +5,25 @@ const ApiError = require("../utils/apiError");
 const { toNumber, roundTo2 } = require("../utils/number");
 const { formatDateISO, getMonthBounds, getWeekBounds, isWithinRange } = require("../utils/date");
 
+function mapDeltaToCreditDebit(delta) {
+  const normalized = roundTo2(toNumber(delta, 0));
+  if (normalized > 0) {
+    return { credit: normalized, debit: 0 };
+  }
+  if (normalized < 0) {
+    return { credit: 0, debit: Math.abs(normalized) };
+  }
+  return { credit: 0, debit: 0 };
+}
+
+function getOpeningBaseBalance(customerId) {
+  const raw = process.env.REPORT_OPENING_BALANCE_OVERRIDE;
+  if (raw === undefined || raw === null || String(raw).trim() === "") return 0;
+  const scopedCustomerId = String(process.env.REPORT_OPENING_BALANCE_CUSTOMER_ID || "").trim();
+  if (scopedCustomerId && String(customerId || "").trim() !== scopedCustomerId) return 0;
+  return roundTo2(toNumber(raw, 0));
+}
+
 async function getCustomers() {
   const rows = await sheetsService.readRows(SHEETS.CUSTOMERS, HEADERS[SHEETS.CUSTOMERS]);
   return rows.map((row) => ({
@@ -30,13 +49,32 @@ async function addCustomer(payload) {
   const customerId = createId("CUS", rows, "Customer ID");
   const balance = roundTo2(toNumber(payload.balance, 0));
 
-  await sheetsService.appendRow(SHEETS.CUSTOMERS, HEADERS[SHEETS.CUSTOMERS], {
+  const customerRow = {
     "Customer ID": customerId,
     Name: payload.name,
     Phone: payload.phone || "",
     Address: payload.address || "",
     Balance: balance
-  });
+  };
+
+  await sheetsService.appendRow(SHEETS.CUSTOMERS, HEADERS[SHEETS.CUSTOMERS], customerRow);
+
+  const vehicleNumber = String(payload.vehicleNumber || "").trim();
+  if (vehicleNumber) {
+    const vehicles = await sheetsService.readRows(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES]);
+    const duplicateVehicle = vehicles.find(
+      (row) => String(row["Vehicle Number"] || "").trim().toLowerCase() === vehicleNumber.toLowerCase()
+    );
+    if (!duplicateVehicle) {
+      const vehicleId = createId("VEH", vehicles, "Vehicle ID");
+      await sheetsService.appendRow(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES], {
+        "Vehicle ID": vehicleId,
+        "Vehicle Number": vehicleNumber,
+        "Customer ID": customerId,
+        Type: payload.vehicleType || ""
+      });
+    }
+  }
 
   return {
     customerId,
@@ -71,18 +109,51 @@ async function updateCustomer(customerId, payload) {
   };
 }
 
-async function deleteCustomer(customerId) {
+async function deleteCustomer(customerId, options = {}) {
+  const cascade = Boolean(options.cascade);
   const rows = await sheetsService.readRows(SHEETS.CUSTOMERS, HEADERS[SHEETS.CUSTOMERS]);
-  const target = rows.find((row) => row["Customer ID"] === customerId);
-  if (!target) throw new ApiError(404, "Customer not found.");
-
   const matches = rows
     .filter((row) => row["Customer ID"] === customerId)
     .sort((a, b) => b.__rowNumber - a.__rowNumber);
+  if (!matches.length) throw new ApiError(404, "Customer not found.");
 
-  for (const row of matches) {
-    await sheetsService.deleteRow(SHEETS.CUSTOMERS, row.__rowNumber);
+  const [salesRows, ledgerRows] = await Promise.all([
+    sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES]),
+    sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER])
+  ]);
+  const vehicleRows = await sheetsService.readRows(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES]);
+
+  const linkedSales = salesRows.filter((row) => row["Customer ID"] === customerId).length;
+  const linkedLedger = ledgerRows.filter((row) => row["Customer ID"] === customerId).length;
+
+  if (!cascade && (linkedSales > 0 || linkedLedger > 0)) {
+    throw new ApiError(
+      409,
+      `Cannot delete customer. Linked transactions found (sales: ${linkedSales}, ledger: ${linkedLedger}). Use force delete to remove linked rows.`
+    );
   }
+
+  if (cascade) {
+    const salesToDelete = salesRows
+      .filter((row) => row["Customer ID"] === customerId)
+      .map((row) => row.__rowNumber);
+    await sheetsService.deleteRows(SHEETS.SALES, salesToDelete);
+
+    const ledgerToDelete = ledgerRows
+      .filter((row) => row["Customer ID"] === customerId)
+      .map((row) => row.__rowNumber);
+    await sheetsService.deleteRows(SHEETS.LEDGER, ledgerToDelete);
+
+    const vehiclesToDelete = vehicleRows
+      .filter((row) => row["Customer ID"] === customerId)
+      .map((row) => row.__rowNumber);
+    await sheetsService.deleteRows(SHEETS.VEHICLES, vehiclesToDelete);
+  }
+
+  await sheetsService.deleteRows(
+    SHEETS.CUSTOMERS,
+    matches.map((row) => row.__rowNumber)
+  );
 }
 
 async function getVehicles() {
@@ -90,7 +161,9 @@ async function getVehicles() {
   return rows.map((row) => ({
     rowNumber: row.__rowNumber,
     vehicleId: row["Vehicle ID"],
-    vehicleNumber: row["Vehicle Number"]
+    vehicleNumber: row["Vehicle Number"],
+    customerId: row["Customer ID"] || "",
+    type: row.Type || ""
   }));
 }
 
@@ -104,10 +177,12 @@ async function addVehicle(payload) {
   const vehicleId = createId("VEH", rows, "Vehicle ID");
   await sheetsService.appendRow(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES], {
     "Vehicle ID": vehicleId,
-    "Vehicle Number": payload.vehicleNumber
+    "Vehicle Number": payload.vehicleNumber,
+    "Customer ID": payload.customerId || "",
+    Type: payload.type || ""
   });
 
-  return { vehicleId, vehicleNumber: payload.vehicleNumber };
+  return { vehicleId, vehicleNumber: payload.vehicleNumber, customerId: payload.customerId || "", type: payload.type || "" };
 }
 
 async function updateVehicle(vehicleId, payload) {
@@ -117,29 +192,42 @@ async function updateVehicle(vehicleId, payload) {
 
   const row = {
     "Vehicle ID": vehicleId,
-    "Vehicle Number": payload.vehicleNumber ?? target["Vehicle Number"]
+    "Vehicle Number": payload.vehicleNumber ?? target["Vehicle Number"],
+    "Customer ID": payload.customerId ?? target["Customer ID"] ?? "",
+    Type: payload.type ?? target.Type ?? ""
   };
 
   await sheetsService.updateRow(SHEETS.VEHICLES, target.__rowNumber, HEADERS[SHEETS.VEHICLES], row);
-  return { vehicleId, vehicleNumber: row["Vehicle Number"] };
+  return { vehicleId, vehicleNumber: row["Vehicle Number"], customerId: row["Customer ID"], type: row.Type };
 }
 
-async function deleteVehicle(vehicleId) {
+async function deleteVehicle(vehicleId, options = {}) {
+  const cascade = Boolean(options.cascade);
   const rows = await sheetsService.readRows(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES]);
   const target = rows.find((row) => row["Vehicle ID"] === vehicleId);
   if (!target) throw new ApiError(404, "Vehicle not found.");
 
-  const normalizedVehicle = String(target["Vehicle Number"] || "").trim().toLowerCase();
-  const matches = rows
-    .filter((row) => {
-      if (row["Vehicle ID"] === vehicleId) return true;
-      return String(row["Vehicle Number"] || "").trim().toLowerCase() === normalizedVehicle;
-    })
-    .sort((a, b) => b.__rowNumber - a.__rowNumber);
+  const salesRows = await sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES]);
+  const linkedSales = salesRows.filter(
+    (row) => String(row.Vehicle || "").trim().toLowerCase() === String(target["Vehicle Number"]).trim().toLowerCase()
+  ).length;
 
-  for (const row of matches) {
-    await sheetsService.deleteRow(SHEETS.VEHICLES, row.__rowNumber);
+  if (!cascade && linkedSales > 0) {
+    throw new ApiError(409, `Cannot delete vehicle. Linked sales found (${linkedSales}). Use force delete to remove linked sales.`);
   }
+
+  if (cascade && linkedSales > 0) {
+    const salesToDelete = salesRows
+      .filter(
+        (row) =>
+          String(row.Vehicle || "").trim().toLowerCase() ===
+          String(target["Vehicle Number"]).trim().toLowerCase()
+      )
+      .map((row) => row.__rowNumber);
+    await sheetsService.deleteRows(SHEETS.SALES, salesToDelete);
+  }
+
+  await sheetsService.deleteRow(SHEETS.VEHICLES, target.__rowNumber);
 }
 
 async function getMaterials() {
@@ -215,9 +303,10 @@ async function deleteMaterial(materialId) {
     })
     .sort((a, b) => b.__rowNumber - a.__rowNumber);
 
-  for (const row of matches) {
-    await sheetsService.deleteRow(SHEETS.MATERIALS, row.__rowNumber);
-  }
+  await sheetsService.deleteRows(
+    SHEETS.MATERIALS,
+    matches.map((row) => row.__rowNumber)
+  );
 }
 
 async function updateCustomerBalance(customerId, balance) {
@@ -254,6 +343,40 @@ async function createLedgerEntry(payload) {
   return { ledgerId, ...payload };
 }
 
+async function recomputeCustomerBalanceFromLedger(customerId) {
+  const rows = await sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER]);
+  const customerRows = rows
+    .filter((row) => row["Customer ID"] === customerId)
+    .sort((a, b) => {
+      const dateCompare = String(a.Date || "").localeCompare(String(b.Date || ""));
+      if (dateCompare !== 0) return dateCompare;
+      return String(a["Ledger ID"] || "").localeCompare(String(b["Ledger ID"] || ""));
+    });
+
+  let balance = getOpeningBaseBalance(customerId);
+  for (const row of customerRows) {
+    balance = roundTo2(balance + toNumber(row.Credit, 0) - toNumber(row.Debit, 0));
+    row.Balance = balance;
+  }
+
+  for (const row of customerRows) {
+    await sheetsService.updateRow(SHEETS.LEDGER, row.__rowNumber, HEADERS[SHEETS.LEDGER], {
+      Date: row.Date,
+      "Ledger ID": row["Ledger ID"],
+      "Customer ID": row["Customer ID"],
+      Credit: roundTo2(toNumber(row.Credit, 0)),
+      Debit: roundTo2(toNumber(row.Debit, 0)),
+      Balance: roundTo2(toNumber(row.Balance, 0)),
+      Reference: row.Reference || "",
+      Type: row.Type || "",
+      Notes: row.Notes || ""
+    });
+  }
+
+  await updateCustomerBalance(customerId, balance);
+  return balance;
+}
+
 async function createSale(payload) {
   const date = formatDateISO(payload.date || new Date());
   if (!date) throw new ApiError(400, "Invalid date.");
@@ -275,8 +398,6 @@ async function createSale(payload) {
 
   let vehicle = null;
   let material = null;
-  let product = String(payload.product || "").trim();
-
   if (transactionType === "sale") {
     vehicle = vehicles.find((item) => item.vehicleId === payload.vehicleId);
     if (!vehicle) throw new ApiError(404, "Vehicle not found.");
@@ -284,9 +405,6 @@ async function createSale(payload) {
     material = materials.find((item) => item.materialId === payload.materialId && item.isActive);
     if (!material) throw new ApiError(404, "Material not found or inactive.");
 
-    if (!product) {
-      product = material.name;
-    }
   } else {
     if (payload.vehicleId) {
       vehicle = vehicles.find((item) => item.vehicleId === payload.vehicleId) || null;
@@ -294,10 +412,8 @@ async function createSale(payload) {
     if (payload.materialId) {
       material = materials.find((item) => item.materialId === payload.materialId && item.isActive) || null;
     }
-    if (!product) {
-      product = material?.name || "General Purchase";
-    }
   }
+  const product = material?.name || "General Purchase";
 
   const quantity = roundTo2(toNumber(payload.quantity));
   const rate = roundTo2(toNumber(payload.rate));
@@ -309,17 +425,9 @@ async function createSale(payload) {
   const total = roundTo2(amount + (gst ?? 0));
 
   const oldBalance = roundTo2(toNumber(customer.balance));
-  const balanceEffect = String(payload.balanceEffect || (transactionType === "purchase" ? "add" : "add")).toLowerCase();
-  let credit = 0;
-  let debit = 0;
-
-  if (transactionType === "sale") {
-    credit = total;
-  } else if (balanceEffect === "subtract") {
-    debit = total;
-  } else {
-    credit = total;
-  }
+  const balanceEffect = transactionType === "purchase" ? "subtract" : "add";
+  const delta = transactionType === "purchase" ? -total : total;
+  const { credit, debit } = mapDeltaToCreditDebit(delta);
 
   const newBalance = roundTo2(oldBalance + credit - debit);
 
@@ -348,7 +456,7 @@ async function createSale(payload) {
     credit,
     debit,
     balance: newBalance,
-    reference: payload.slipNo,
+    reference: `SALE:${saleId}`,
     type: transactionType.toUpperCase(),
     notes:
       transactionType === "sale"
@@ -366,7 +474,7 @@ async function createSale(payload) {
     slipNo: payload.slipNo,
     customerId: customer.customerId,
     customerName: customer.name,
-    vehicle: vehicle.vehicleNumber,
+    vehicle: vehicle?.vehicleNumber || "",
     product,
     material: material?.name || "",
     quantity,
@@ -377,6 +485,25 @@ async function createSale(payload) {
     previousBalance: oldBalance,
     balance: newBalance
   };
+}
+
+async function updateSale(saleId, payload) {
+  const salesRows = await sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES]);
+  const target = salesRows.find((row) => row["Sale ID"] === saleId);
+  if (!target) throw new ApiError(404, "Sale not found.");
+
+  await deleteSale(saleId);
+  return createSale({
+    date: payload.date ?? target.Date,
+    slipNo: payload.slipNo ?? target["Slip No"],
+    transactionType: String(payload.transactionType || target.Type || "SALE").toLowerCase(),
+    customerId: payload.customerId ?? target["Customer ID"],
+    vehicleId: payload.vehicleId || "",
+    materialId: payload.materialId || "",
+    quantity: payload.quantity ?? toNumber(target.Quantity, 0),
+    rate: payload.rate ?? toNumber(target.Rate, 0),
+    gst: payload.gst === undefined ? target.GST : payload.gst
+  });
 }
 
 async function getSales(date) {
@@ -403,6 +530,52 @@ async function getSales(date) {
     total: roundTo2(toNumber(row.Total)),
     balance: roundTo2(toNumber(row.Balance))
   }));
+}
+
+async function deleteSale(saleId) {
+  const salesRows = await sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES]);
+  const target = salesRows.find((row) => row["Sale ID"] === saleId);
+  if (!target) throw new ApiError(404, "Sale not found.");
+
+  const customerId = target["Customer ID"];
+  const salesToDelete = salesRows
+    .filter((row) => row["Sale ID"] === saleId)
+    .sort((a, b) => b.__rowNumber - a.__rowNumber);
+
+  const ledgerRows = await sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER]);
+  let ledgerToDelete = ledgerRows
+    .filter((row) => String(row.Reference || "").trim() === `SALE:${saleId}`)
+    .sort((a, b) => b.__rowNumber - a.__rowNumber);
+
+  // Backward compatibility: old rows used slip number as reference.
+  if (!ledgerToDelete.length) {
+    ledgerToDelete = ledgerRows
+      .filter(
+        (row) =>
+          row["Customer ID"] === customerId &&
+          String(row.Reference || "").trim() === String(target["Slip No"] || "").trim() &&
+          ["SALE", "PURCHASE"].includes(String(row.Type || "").toUpperCase())
+      )
+      .sort((a, b) => b.__rowNumber - a.__rowNumber);
+  }
+
+  await sheetsService.deleteRows(
+    SHEETS.SALES,
+    salesToDelete.map((row) => row.__rowNumber)
+  );
+  await sheetsService.deleteRows(
+    SHEETS.LEDGER,
+    ledgerToDelete.map((row) => row.__rowNumber)
+  );
+
+  const balance = await recomputeCustomerBalanceFromLedger(customerId);
+  return {
+    saleId,
+    customerId,
+    deletedSalesRows: salesToDelete.length,
+    deletedLedgerRows: ledgerToDelete.length,
+    balance
+  };
 }
 
 async function recordPayment(payload) {
@@ -455,8 +628,8 @@ async function addLedgerEntry(payload) {
     throw new ApiError(400, "entryType must be either 'credit' or 'debit'.");
   }
 
-  const credit = entryType === "credit" ? amount : 0;
-  const debit = entryType === "debit" ? amount : 0;
+  const delta = entryType === "credit" ? amount : -amount;
+  const { credit, debit } = mapDeltaToCreditDebit(delta);
 
   const oldBalance = roundTo2(toNumber(customer.balance));
   const newBalance = roundTo2(oldBalance + credit - debit);
@@ -538,11 +711,57 @@ function rangeFromType(type, dateRef) {
   throw new ApiError(400, "Invalid report type.");
 }
 
-async function getReport(type, dateRef) {
-  const { start, end } = rangeFromType(type, dateRef);
-  const sales = await getSales();
+async function getReport(type, dateRef, filters = {}) {
+  const defaultRange = rangeFromType(type, dateRef);
+  const start = filters.from || defaultRange.start;
+  const end = filters.to || defaultRange.end;
+  const [sales, ledgerRows] = await Promise.all([
+    getSales(),
+    sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER])
+  ]);
 
-  const filtered = sales.filter((row) => isWithinRange(row.date, start, end));
+  const ledgerByReference = new Map();
+  for (const row of ledgerRows) {
+    const reference = String(row.Reference || "").trim();
+    if (!reference) continue;
+    ledgerByReference.set(reference, {
+      credit: roundTo2(toNumber(row.Credit, 0)),
+      debit: roundTo2(toNumber(row.Debit, 0))
+    });
+  }
+
+  const filtered = sales.filter((row) => {
+    if (!isWithinRange(row.date, start, end)) return false;
+    if (filters.customerId && row.customerId !== filters.customerId) return false;
+    return true;
+  }).sort((a, b) => {
+    const dateCompare = String(a.date || "").localeCompare(String(b.date || ""));
+    if (dateCompare !== 0) return dateCompare;
+    return String(a.saleId || "").localeCompare(String(b.saleId || ""));
+  });
+
+  const statementRows = filtered.map((row) => {
+    const ledgerEntry =
+      ledgerByReference.get(`SALE:${row.saleId}`) ||
+      ledgerByReference.get(String(row.slipNo || "").trim()) ||
+      null;
+    const fallbackCredit = String(row.type || "SALE").toUpperCase() === "PURCHASE" ? 0 : roundTo2(toNumber(row.total, 0));
+    const fallbackDebit = String(row.type || "SALE").toUpperCase() === "PURCHASE" ? roundTo2(toNumber(row.total, 0)) : 0;
+    return {
+      date: row.date,
+      reference: row.slipNo,
+      description: row.product || row.material,
+      quantity: row.quantity,
+      rate: row.rate,
+      amount: row.amount,
+      gst: row.gst ?? "",
+      total: row.total,
+      credit: ledgerEntry ? ledgerEntry.credit : fallbackCredit,
+      debit: ledgerEntry ? ledgerEntry.debit : fallbackDebit,
+      balance: row.balance
+    };
+  });
+
   const totals = filtered.reduce(
     (acc, row) => {
       acc.amount += row.amount;
@@ -552,14 +771,165 @@ async function getReport(type, dateRef) {
     },
     { amount: 0, gst: 0, total: 0 }
   );
+  const creditDebitTotals = statementRows.reduce(
+    (acc, row) => {
+      acc.credit += row.credit;
+      acc.debit += row.debit;
+      return acc;
+    },
+    { credit: 0, debit: 0 }
+  );
+
+  const firstRow = filtered[0] || null;
+  const manualOpeningTypes = new Set(["CREDIT", "DEBIT", "PAYMENT"]);
+  const filteredCustomerIds = Array.from(new Set(filtered.map((row) => String(row.customerId || "").trim()).filter(Boolean)));
+  const openingCustomerId = filters.customerId || (filteredCustomerIds.length === 1 ? filteredCustomerIds[0] : "");
+
+  let manualOpeningDelta = 0;
+  if (openingCustomerId) {
+    const manualRows = ledgerRows
+      .filter((row) => {
+        const cid = String(row["Customer ID"] || "").trim();
+        const rowType = String(row.Type || "").trim().toUpperCase();
+        return cid === openingCustomerId && manualOpeningTypes.has(rowType);
+      })
+      .sort((a, b) => {
+        const dateCompare = String(a.Date || "").localeCompare(String(b.Date || ""));
+        if (dateCompare !== 0) return dateCompare;
+        return String(a["Ledger ID"] || "").localeCompare(String(b["Ledger ID"] || ""));
+      });
+    manualOpeningDelta = roundTo2(
+      manualRows.reduce((acc, row) => acc + toNumber(row.Credit, 0) - toNumber(row.Debit, 0), 0)
+    );
+  }
+
+  const openingOverride = process.env.REPORT_OPENING_BALANCE_OVERRIDE;
+  let openingBalance = openingOverride !== undefined && openingOverride !== ""
+    ? roundTo2(toNumber(openingOverride, 0) + manualOpeningDelta)
+    : 0;
+  if ((openingOverride === undefined || openingOverride === "") && firstRow) {
+    const sign = String(firstRow.type || "SALE").toUpperCase() === "PURCHASE" ? -1 : 1;
+    openingBalance = roundTo2(toNumber(firstRow.balance, 0) - sign * toNumber(firstRow.total, 0));
+  }
+
+  let runningBalance = openingBalance;
+  for (const row of statementRows) {
+    runningBalance = roundTo2(runningBalance + toNumber(row.credit, 0) - toNumber(row.debit, 0));
+    row.balance = runningBalance;
+  }
+  const closingBalance = statementRows.length ? runningBalance : openingBalance;
+
+  // Keep report table rows in sync with recalculated running balance.
+  // This avoids stale/incorrect stored balances appearing in UI.
+  const balanceBySaleId = new Map();
+  statementRows.forEach((row, index) => {
+    const saleId = filtered[index]?.saleId;
+    if (saleId) {
+      balanceBySaleId.set(saleId, row.balance);
+    }
+  });
+
+  const normalizedRows = filtered.map((row) => ({
+    ...row,
+    balance: balanceBySaleId.get(row.saleId) ?? row.balance
+  }));
+
+  const statement = {
+    companyName: "Saravana Blue Metals",
+    statementType: `${type.toUpperCase()} STATEMENT`,
+    partyName: "All Customers",
+    period: `${start} to ${end}`,
+    openingBalance,
+    closingBalance,
+    rows: statementRows,
+    totals: {
+      amount: roundTo2(totals.amount),
+      gst: roundTo2(totals.gst),
+      total: roundTo2(totals.total),
+      credit: roundTo2(creditDebitTotals.credit),
+      debit: roundTo2(creditDebitTotals.debit)
+    }
+  };
 
   return {
     range: { start, end },
-    rows: filtered,
+    rows: normalizedRows,
     totals: {
       amount: roundTo2(totals.amount),
       gst: roundTo2(totals.gst),
       total: roundTo2(totals.total)
+    },
+    statement
+  };
+}
+
+async function getCustomerStatement(customerId, fromDate, toDate) {
+  const customer = await getCustomerById(customerId);
+  if (!customer) throw new ApiError(404, "Customer not found.");
+
+  const rows = await sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER]);
+  const ledgerRows = rows
+    .filter((row) => row["Customer ID"] === customerId)
+    .sort((a, b) => {
+      const dateCompare = String(a.Date || "").localeCompare(String(b.Date || ""));
+      if (dateCompare !== 0) return dateCompare;
+      return String(a["Ledger ID"] || "").localeCompare(String(b["Ledger ID"] || ""));
+    });
+
+  const start = fromDate || (ledgerRows[0]?.Date || formatDateISO(new Date()));
+  const end = toDate || (ledgerRows[ledgerRows.length - 1]?.Date || formatDateISO(new Date()));
+
+  const filtered = ledgerRows.filter((row) => row.Date >= start && row.Date <= end);
+  const openingRows = ledgerRows.filter((row) => row.Date < start);
+  const openingBalance = openingRows.length ? roundTo2(toNumber(openingRows[openingRows.length - 1].Balance, 0)) : 0;
+
+  let running = openingBalance;
+  const statementRows = filtered.map((row) => {
+    const credit = roundTo2(toNumber(row.Credit, 0));
+    const debit = roundTo2(toNumber(row.Debit, 0));
+    running = roundTo2(running + credit - debit);
+    return {
+      date: row.Date,
+      reference: row.Reference || row["Ledger ID"],
+      description: row.Notes || row.Type || "",
+      credit,
+      debit,
+      balance: running
+    };
+  });
+
+  const totals = statementRows.reduce(
+    (acc, row) => {
+      acc.credit += row.credit;
+      acc.debit += row.debit;
+      return acc;
+    },
+    { credit: 0, debit: 0 }
+  );
+
+  const closingBalance = statementRows.length ? statementRows[statementRows.length - 1].balance : openingBalance;
+
+  return {
+    customerId,
+    customerName: customer.name,
+    range: { start, end },
+    rows: statementRows,
+    totals: {
+      credit: roundTo2(totals.credit),
+      debit: roundTo2(totals.debit)
+    },
+    statement: {
+      companyName: "Saravana Blue Metals",
+      statementType: "CUSTOMER STATEMENT",
+      partyName: customer.name,
+      period: `${start} to ${end}`,
+      openingBalance,
+      closingBalance,
+      rows: statementRows,
+      totals: {
+        credit: roundTo2(totals.credit),
+        debit: roundTo2(totals.debit)
+      }
     }
   };
 }
@@ -608,10 +978,13 @@ module.exports = {
   updateMaterial,
   deleteMaterial,
   createSale,
+  updateSale,
+  deleteSale,
   getSales,
   recordPayment,
   addLedgerEntry,
   getLedger,
   getReport,
+  getCustomerStatement,
   getDashboardSummary
 };

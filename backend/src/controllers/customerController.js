@@ -22,8 +22,8 @@ const editCustomer = asyncHandler(async (req, res) => {
 });
 
 const removeCustomer = asyncHandler(async (req, res) => {
-  await deleteCustomer(req.params.customerId);
-  res.status(200).json({ success: true, message: "Customer deleted." });
+  await deleteCustomer(req.params.customerId, { cascade: true });
+  res.status(200).json({ success: true, message: "Customer and linked rows deleted." });
 });
 
 module.exports = { listCustomers, createCustomer, editCustomer, removeCustomer };

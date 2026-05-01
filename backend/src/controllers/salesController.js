@@ -1,5 +1,5 @@
 const asyncHandler = require("../utils/asyncHandler");
-const { createSale, getSales } = require("../services/erpService");
+const { createSale, getSales, deleteSale, updateSale } = require("../services/erpService");
 const { formatDateISO } = require("../utils/date");
 
 const addSale = asyncHandler(async (req, res) => {
@@ -22,4 +22,14 @@ const listSalesByDate = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, sales, date });
 });
 
-module.exports = { addSale, listSales, listSalesByDate };
+const removeSale = asyncHandler(async (req, res) => {
+  const result = await deleteSale(req.params.saleId);
+  res.status(200).json({ success: true, message: "Sale deleted and balances recomputed.", result });
+});
+
+const editSale = asyncHandler(async (req, res) => {
+  const sale = await updateSale(req.params.saleId, req.body);
+  res.status(200).json({ success: true, message: "Sale updated.", sale });
+});
+
+module.exports = { addSale, listSales, listSalesByDate, removeSale, editSale };

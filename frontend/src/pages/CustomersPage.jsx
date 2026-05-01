@@ -3,8 +3,9 @@ import toast from "react-hot-toast";
 
 import api from "../api/client";
 import DataTable from "../components/DataTable";
+import { downloadStatementCsv, printStatementPdf } from "../utils/exporters";
 
-const initialForm = { name: "", phone: "", address: "", balance: "0" };
+const initialForm = { name: "", phone: "", address: "", balance: "0", vehicleNumber: "", vehicleType: "" };
 
 function CustomersPage() {
   const [customers, setCustomers] = useState([]);
@@ -49,7 +50,18 @@ function CustomersPage() {
       toast.success("Customer deleted");
       loadCustomers();
     } catch (error) {
-      toast.error(error.response?.data?.message || "Delete failed");
+      const status = error.response?.status;
+      const message = error.response?.data?.message || "Delete failed";
+      if (status === 409) {
+        const shouldCascade = window.confirm(`${message}\n\nDo you want to force delete customer with linked rows?`);
+        if (shouldCascade) {
+          await api.delete(`/customers/${customerId}?force=true`);
+          toast.success("Customer and linked rows deleted");
+          loadCustomers();
+          return;
+        }
+      }
+      toast.error(message);
     }
   }
 
@@ -79,6 +91,28 @@ function CustomersPage() {
     }
   }
 
+  async function downloadStatement(row) {
+    const from = window.prompt("From date (YYYY-MM-DD) - optional") || "";
+    const to = window.prompt("To date (YYYY-MM-DD) - optional") || "";
+
+    try {
+      const params = new URLSearchParams();
+      if (from.trim()) params.set("from", from.trim());
+      if (to.trim()) params.set("to", to.trim());
+      const query = params.toString() ? `?${params.toString()}` : "";
+      const response = await api.get(`/reports/customer/${row.customerId}${query}`);
+      const statement = response.data.statement;
+      if (!statement) {
+        toast.error("Statement payload missing");
+        return;
+      }
+      downloadStatementCsv(statement, `customer-${row.customerId}-statement`);
+      printStatementPdf(statement);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to download statement");
+    }
+  }
+
   return (
     <div className="space-y-4">
       <form className="glass grid gap-3 rounded-2xl p-4 md:grid-cols-5" onSubmit={submit}>
@@ -86,6 +120,8 @@ function CustomersPage() {
         <input className="input" placeholder="Phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
         <input className="input" placeholder="Address" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
         <input className="input" type="number" step="0.01" placeholder="Opening Balance" value={form.balance} onChange={(e) => setForm((f) => ({ ...f, balance: e.target.value }))} />
+        <input className="input" placeholder="Vehicle Number (Optional)" value={form.vehicleNumber} onChange={(e) => setForm((f) => ({ ...f, vehicleNumber: e.target.value }))} />
+        <input className="input" placeholder="Vehicle Type (Optional)" value={form.vehicleType} onChange={(e) => setForm((f) => ({ ...f, vehicleType: e.target.value }))} />
         <button className="btn-primary" type="submit">{editingId ? "Update Customer" : "Add Customer"}</button>
       </form>
 
@@ -124,6 +160,9 @@ function CustomersPage() {
                 </button>
                 <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => adjustBalance(row.customerId, "debit")}>
                   Debit
+                </button>
+                <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => downloadStatement(row)}>
+                  Statement
                 </button>
               </div>
             )

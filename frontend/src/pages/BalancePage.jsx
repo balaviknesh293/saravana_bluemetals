@@ -8,6 +8,7 @@ function BalancePage() {
   const [customers, setCustomers] = useState([]);
   const [form, setForm] = useState({
     customerId: "",
+    entryType: "debit",
     amount: "",
     date: new Date().toISOString().slice(0, 10),
     reference: "",
@@ -28,11 +29,18 @@ function BalancePage() {
   async function submit(event) {
     event.preventDefault();
     try {
-      await api.post("/payment", {
-        ...form,
-        amount: Number(form.amount || 0)
-      });
-      toast.success("Payment recorded");
+      if (form.entryType === "debit") {
+        await api.post("/payment", {
+          ...form,
+          amount: Number(form.amount || 0)
+        });
+      } else {
+        await api.post("/ledger/entry", {
+          ...form,
+          amount: Number(form.amount || 0)
+        });
+      }
+      toast.success(`${form.entryType.toUpperCase()} recorded`);
       setForm((current) => ({ ...current, amount: "", reference: "", notes: "" }));
       loadCustomers();
     } catch (error) {
@@ -48,6 +56,10 @@ function BalancePage() {
           {customers.map((customer) => (
             <option key={customer.customerId} value={customer.customerId}>{customer.name}</option>
           ))}
+        </select>
+        <select className="input" value={form.entryType} onChange={(e) => setForm((f) => ({ ...f, entryType: e.target.value }))}>
+          <option value="debit">Debit (Reduce Balance)</option>
+          <option value="credit">Credit (Increase Balance)</option>
         </select>
         <input className="input" type="number" step="0.01" placeholder="Payment Amount" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} required />
         <input className="input" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} required />

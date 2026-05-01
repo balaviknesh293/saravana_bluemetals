@@ -21,7 +21,7 @@ const SHEETS = {
 
 const HEADERS = {
   [SHEETS.CUSTOMERS]: ["Customer ID", "Name", "Phone", "Address", "Balance"],
-  [SHEETS.VEHICLES]: ["Vehicle ID", "Vehicle Number"],
+  [SHEETS.VEHICLES]: ["Vehicle ID", "Vehicle Number", "Customer ID", "Type"],
   [SHEETS.MATERIALS]: ["Material ID", "Name", "Is Active"],
   [SHEETS.SALES]: [
     "Date",
