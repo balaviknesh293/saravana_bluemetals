@@ -377,6 +377,48 @@ async function recomputeCustomerBalanceFromLedger(customerId) {
   return balance;
 }
 
+async function syncSalesBalancesFromLedger(customerId) {
+  const [salesRows, ledgerRows] = await Promise.all([
+    sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES]),
+    sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER])
+  ]);
+
+  const ledgerByReference = new Map();
+  for (const row of ledgerRows) {
+    if (String(row["Customer ID"] || "").trim() !== String(customerId || "").trim()) continue;
+    const reference = String(row.Reference || "").trim();
+    if (!reference) continue;
+    ledgerByReference.set(reference, roundTo2(toNumber(row.Balance, 0)));
+  }
+
+  const customerSales = salesRows.filter((row) => row["Customer ID"] === customerId);
+  for (const saleRow of customerSales) {
+    const saleId = String(saleRow["Sale ID"] || "").trim();
+    const slipNo = String(saleRow["Slip No"] || "").trim();
+    const nextBalance =
+      ledgerByReference.get(`SALE:${saleId}`) ??
+      ledgerByReference.get(slipNo);
+    if (nextBalance === undefined) continue;
+
+    await sheetsService.updateRow(SHEETS.SALES, saleRow.__rowNumber, HEADERS[SHEETS.SALES], {
+      Date: saleRow.Date,
+      "Slip No": saleRow["Slip No"],
+      "Sale ID": saleRow["Sale ID"],
+      Type: saleRow.Type || "SALE",
+      "Customer ID": saleRow["Customer ID"],
+      Product: saleRow.Product || "",
+      Vehicle: saleRow.Vehicle || "",
+      Material: saleRow.Material || "",
+      Quantity: roundTo2(toNumber(saleRow.Quantity, 0)),
+      Rate: roundTo2(toNumber(saleRow.Rate, 0)),
+      Amount: roundTo2(toNumber(saleRow.Amount, 0)),
+      GST: saleRow.GST === "" ? "" : roundTo2(toNumber(saleRow.GST, 0)),
+      Total: roundTo2(toNumber(saleRow.Total, 0)),
+      Balance: nextBalance
+    });
+  }
+}
+
 async function createSale(payload) {
   const date = formatDateISO(payload.date || new Date());
   if (!date) throw new ApiError(400, "Invalid date.");
@@ -431,7 +473,7 @@ async function createSale(payload) {
 
   const newBalance = roundTo2(oldBalance + credit - debit);
 
-  const saleId = createId("SAL", salesRows, "Sale ID");
+  const saleId = String(payload.saleId || "").trim() || createId("SAL", salesRows, "Sale ID");
 
   await sheetsService.appendRow(SHEETS.SALES, HEADERS[SHEETS.SALES], {
     Date: date,
@@ -464,7 +506,8 @@ async function createSale(payload) {
         : `Purchase: ${product} (${quantity} units)`
   });
 
-  await updateCustomerBalance(customer.customerId, newBalance);
+  await recomputeCustomerBalanceFromLedger(customer.customerId);
+  await syncSalesBalancesFromLedger(customer.customerId);
 
   return {
     saleId,
@@ -494,6 +537,7 @@ async function updateSale(saleId, payload) {
 
   await deleteSale(saleId);
   return createSale({
+    saleId,
     date: payload.date ?? target.Date,
     slipNo: payload.slipNo ?? target["Slip No"],
     transactionType: String(payload.transactionType || target.Type || "SALE").toLowerCase(),
@@ -569,6 +613,7 @@ async function deleteSale(saleId) {
   );
 
   const balance = await recomputeCustomerBalanceFromLedger(customerId);
+  await syncSalesBalancesFromLedger(customerId);
   return {
     saleId,
     customerId,
