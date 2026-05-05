@@ -9,6 +9,7 @@ function SalesPage() {
   const [vehicles, setVehicles] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [sales, setSales] = useState([]);
+  const [vehicleQuery, setVehicleQuery] = useState("");
   const [editingSaleId, setEditingSaleId] = useState(null);
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
@@ -43,6 +44,24 @@ function SalesPage() {
   const amount = useMemo(() => Number(form.quantity || 0) * Number(form.rate || 0), [form.quantity, form.rate]);
   const hasGst = form.gst !== "" && form.gst !== null && form.gst !== undefined;
   const total = amount + (hasGst ? Number(form.gst || 0) : 0);
+  const filteredVehicles = useMemo(
+    () =>
+      vehicles.filter((vehicle) => {
+        const allowedForCustomer = !form.customerId || !vehicle.customerId || vehicle.customerId === form.customerId;
+        if (!allowedForCustomer) return false;
+        if (!vehicleQuery.trim()) return true;
+        return String(vehicle.vehicleNumber || "").toLowerCase().includes(vehicleQuery.toLowerCase().trim());
+      }),
+    [vehicles, form.customerId, vehicleQuery]
+  );
+
+  function onVehicleInputChange(value) {
+    setVehicleQuery(value);
+    const exact = filteredVehicles.find(
+      (vehicle) => String(vehicle.vehicleNumber || "").toLowerCase() === String(value || "").toLowerCase()
+    );
+    setForm((current) => ({ ...current, vehicleId: exact?.vehicleId || "" }));
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -110,14 +129,34 @@ function SalesPage() {
           ))}
         </select>
 
-        <select className="input" value={form.vehicleId} onChange={(e) => setForm((f) => ({ ...f, vehicleId: e.target.value }))} required={form.transactionType === "sale"}>
-          <option value="">Select Vehicle</option>
-          {vehicles.filter((vehicle) => !form.customerId || !vehicle.customerId || vehicle.customerId === form.customerId).map((vehicle) => (
-            <option key={vehicle.vehicleId} value={vehicle.vehicleId}>{vehicle.vehicleNumber}</option>
+        <input
+          className="input"
+          placeholder="Type Vehicle Number"
+          value={vehicleQuery}
+          onChange={(e) => onVehicleInputChange(e.target.value)}
+          list="vehicle-suggestions"
+          required={form.transactionType === "sale"}
+        />
+        <datalist id="vehicle-suggestions">
+          {filteredVehicles.map((vehicle) => (
+            <option key={vehicle.vehicleId} value={vehicle.vehicleNumber} />
           ))}
-        </select>
+        </datalist>
 
-        <select className="input" value={form.materialId} onChange={(e) => setForm((f) => ({ ...f, materialId: e.target.value }))} required={form.transactionType === "sale"}>
+        <select
+          className="input"
+          value={form.materialId}
+          onChange={(e) => {
+            const nextMaterialId = e.target.value;
+            const selectedMaterial = materials.find((item) => item.materialId === nextMaterialId);
+            setForm((current) => ({
+              ...current,
+              materialId: nextMaterialId,
+              rate: selectedMaterial && Number(selectedMaterial.price || 0) > 0 ? String(selectedMaterial.price) : current.rate
+            }));
+          }}
+          required={form.transactionType === "sale"}
+        >
           <option value="">Select Material</option>
           {materials.map((material) => (
             <option key={material.materialId} value={material.materialId}>{material.name}</option>
@@ -173,6 +212,7 @@ function SalesPage() {
                     rate: String(row.rate ?? ""),
                     gst: row.gst === null || row.gst === undefined ? "" : String(row.gst)
                   }));
+                  setVehicleQuery(row.vehicle || "");
                 }}>
                   Edit
                 </button>

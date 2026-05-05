@@ -62,8 +62,11 @@ async function addCustomer(payload) {
   const vehicleNumber = String(payload.vehicleNumber || "").trim();
   if (vehicleNumber) {
     const vehicles = await sheetsService.readRows(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES]);
+    const normalizedCustomerId = String(customerId || "").trim();
     const duplicateVehicle = vehicles.find(
-      (row) => String(row["Vehicle Number"] || "").trim().toLowerCase() === vehicleNumber.toLowerCase()
+      (row) =>
+        String(row["Vehicle Number"] || "").trim().toLowerCase() === vehicleNumber.toLowerCase() &&
+        String(row["Customer ID"] || "").trim() === normalizedCustomerId
     );
     if (!duplicateVehicle) {
       const vehicleId = createId("VEH", vehicles, "Vehicle ID");
@@ -169,10 +172,14 @@ async function getVehicles() {
 
 async function addVehicle(payload) {
   const rows = await sheetsService.readRows(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES]);
+  const normalizedVehicleNumber = String(payload.vehicleNumber || "").trim().toLowerCase();
+  const normalizedCustomerId = String(payload.customerId || "").trim();
   const duplicate = rows.find(
-    (row) => String(row["Vehicle Number"]).toLowerCase() === String(payload.vehicleNumber).toLowerCase()
+    (row) =>
+      String(row["Vehicle Number"] || "").trim().toLowerCase() === normalizedVehicleNumber &&
+      String(row["Customer ID"] || "").trim() === normalizedCustomerId
   );
-  if (duplicate) throw new ApiError(409, "Vehicle number already exists.");
+  if (duplicate) throw new ApiError(409, "Vehicle number already exists for this customer.");
 
   const vehicleId = createId("VEH", rows, "Vehicle ID");
   await sheetsService.appendRow(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES], {
@@ -189,6 +196,16 @@ async function updateVehicle(vehicleId, payload) {
   const rows = await sheetsService.readRows(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES]);
   const target = rows.find((row) => row["Vehicle ID"] === vehicleId);
   if (!target) throw new ApiError(404, "Vehicle not found.");
+
+  const nextVehicleNumber = String(payload.vehicleNumber ?? target["Vehicle Number"] ?? "").trim();
+  const nextCustomerId = String(payload.customerId ?? target["Customer ID"] ?? "").trim();
+  const duplicate = rows.find(
+    (row) =>
+      row["Vehicle ID"] !== vehicleId &&
+      String(row["Vehicle Number"] || "").trim().toLowerCase() === nextVehicleNumber.toLowerCase() &&
+      String(row["Customer ID"] || "").trim() === nextCustomerId
+  );
+  if (duplicate) throw new ApiError(409, "Vehicle number already exists for this customer.");
 
   const row = {
     "Vehicle ID": vehicleId,
@@ -236,6 +253,7 @@ async function getMaterials() {
     rowNumber: row.__rowNumber,
     materialId: row["Material ID"],
     name: row.Name,
+    price: roundTo2(toNumber(row.Price, 0)),
     isActive: String(row["Is Active"]).toLowerCase() !== "false"
   }));
 
@@ -264,11 +282,12 @@ async function addMaterial(payload) {
   const material = {
     "Material ID": materialId,
     Name: payload.name,
+    Price: roundTo2(toNumber(payload.price, 0)),
     "Is Active": payload.isActive === false ? "FALSE" : "TRUE"
   };
 
   await sheetsService.appendRow(SHEETS.MATERIALS, HEADERS[SHEETS.MATERIALS], material);
-  return { materialId, name: payload.name, isActive: payload.isActive !== false };
+  return { materialId, name: payload.name, price: roundTo2(toNumber(payload.price, 0)), isActive: payload.isActive !== false };
 }
 
 async function updateMaterial(materialId, payload) {
@@ -279,6 +298,7 @@ async function updateMaterial(materialId, payload) {
   const row = {
     "Material ID": materialId,
     Name: payload.name ?? target.Name,
+    Price: payload.price === undefined ? roundTo2(toNumber(target.Price, 0)) : roundTo2(toNumber(payload.price, 0)),
     "Is Active": payload.isActive === undefined ? target["Is Active"] : payload.isActive ? "TRUE" : "FALSE"
   };
 
@@ -286,6 +306,7 @@ async function updateMaterial(materialId, payload) {
   return {
     materialId,
     name: row.Name,
+    price: roundTo2(toNumber(row.Price, 0)),
     isActive: String(row["Is Active"]).toLowerCase() !== "false"
   };
 }
@@ -558,6 +579,11 @@ async function getSales(date) {
   const filtered = date ? salesRows.filter((row) => row.Date === date) : salesRows;
 
   return filtered.map((row) => ({
+    quantity: roundTo2(toNumber(row.Quantity)),
+    rate: roundTo2(toNumber(row.Rate)),
+    gst: row.GST === "" ? null : roundTo2(toNumber(row.GST, 0)),
+    amount: roundTo2(toNumber(row.Quantity) * toNumber(row.Rate)),
+    total: roundTo2(roundTo2(toNumber(row.Quantity) * toNumber(row.Rate)) + (row.GST === "" ? 0 : toNumber(row.GST, 0))),
     date: row.Date,
     slipNo: row["Slip No"],
     saleId: row["Sale ID"],
@@ -567,11 +593,6 @@ async function getSales(date) {
     product: row.Product || row.Material || "",
     vehicle: row.Vehicle,
     material: row.Material,
-    quantity: roundTo2(toNumber(row.Quantity)),
-    rate: roundTo2(toNumber(row.Rate)),
-    amount: roundTo2(toNumber(row.Amount)),
-    gst: row.GST === "" ? null : roundTo2(toNumber(row.GST, 0)),
-    total: roundTo2(toNumber(row.Total)),
     balance: roundTo2(toNumber(row.Balance))
   }));
 }
@@ -796,6 +817,7 @@ async function getReport(type, dateRef, filters = {}) {
       date: row.date,
       reference: row.slipNo,
       description: row.product || row.material,
+      vehicle: row.vehicle || "",
       quantity: row.quantity,
       rate: row.rate,
       amount: row.amount,

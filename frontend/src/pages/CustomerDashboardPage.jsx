@@ -72,7 +72,7 @@ function CustomerDashboardPage() {
       <DataTable
         columns={[
           { key: "date", label: "Date" },
-          { key: "reference", label: "Reference" },
+          { key: "reference", label: "Slip No" },
           { key: "type", label: "Type" },
           { key: "previousBalance", label: "Previous Balance" },
           { key: "credit", label: "Credit" },

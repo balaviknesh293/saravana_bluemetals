@@ -7,6 +7,7 @@ import DataTable from "../components/DataTable";
 function MaterialsPage() {
   const [materials, setMaterials] = useState([]);
   const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
   const [editingId, setEditingId] = useState(null);
 
   function load() {
@@ -24,13 +25,14 @@ function MaterialsPage() {
     event.preventDefault();
     try {
       if (editingId) {
-        await api.put(`/materials/${editingId}`, { name, isActive: true });
+        await api.put(`/materials/${editingId}`, { name, price: Number(price || 0), isActive: true });
         toast.success("Material updated");
       } else {
-        await api.post("/materials", { name, isActive: true });
+        await api.post("/materials", { name, price: Number(price || 0), isActive: true });
         toast.success("Material added");
       }
       setName("");
+      setPrice("");
       setEditingId(null);
       load();
     } catch (error) {
@@ -52,6 +54,7 @@ function MaterialsPage() {
     <div className="space-y-4">
       <form className="glass flex flex-col gap-3 rounded-2xl p-4 md:flex-row" onSubmit={submit}>
         <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Material Name" required />
+        <input className="input" type="number" step="0.01" min="0" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Price" />
         <button className="btn-primary" type="submit">{editingId ? "Update" : "Add Material"}</button>
       </form>
 
@@ -59,13 +62,14 @@ function MaterialsPage() {
         columns={[
           { key: "materialId", label: "Material ID" },
           { key: "name", label: "Material" },
+          { key: "price", label: "Price" },
           { key: "isActive", label: "Status", render: (row) => (row.isActive ? "Active" : "Inactive") },
           {
             key: "actions",
             label: "Actions",
             render: (row) => (
               <div className="flex gap-2">
-                <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => { setName(row.name); setEditingId(row.materialId); }}>
+                <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => { setName(row.name); setPrice(String(row.price ?? "")); setEditingId(row.materialId); }}>
                   Edit
                 </button>
                 <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => remove(row.materialId)}>

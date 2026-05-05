@@ -75,16 +75,16 @@ function buildStatementHtml(statement) {
         <title>${escapeHtml(statement.statementType || "Statement")}</title>
         <style>
           @page { size: A4 portrait; margin: 16mm; }
-          body { font-family: "Segoe UI", Arial, sans-serif; color: #0f172a; }
+          body { font-family: "Segoe UI", Arial, sans-serif; color: #0b0b0b; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .card { border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; }
           .header { padding: 14px 16px; border-bottom: 1px solid #cbd5e1; }
           .title { margin: 0; font-size: 18px; font-weight: 700; }
-          .sub { margin: 4px 0 0; font-size: 12px; color: #475569; }
-          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
-          .label { color: #475569; margin-right: 4px; }
-          table { width: 100%; border-collapse: collapse; font-size: 11px; }
-          th, td { border: 1px solid #e2e8f0; padding: 6px; text-align: left; vertical-align: top; }
-          th { background: #f8fafc; font-weight: 600; }
+          .sub { margin: 4px 0 0; font-size: 12px; color: #111827; font-weight: 600; }
+          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; font-size: 12px; color: #111827; }
+          .label { color: #111827; margin-right: 4px; font-weight: 700; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; color: #0b0b0b; }
+          th, td { border: 1px solid #cbd5e1; padding: 6px; text-align: left; vertical-align: top; font-weight: 600; }
+          th { background: #eef2f7; font-weight: 700; }
           .num { text-align: right; }
           .totals { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-top: 1px solid #cbd5e1; }
           .totals .left, .totals .right { padding: 10px 16px; font-size: 12px; }
@@ -109,9 +109,9 @@ function buildStatementHtml(statement) {
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Reference</th>
+                <th>Slip No</th>
                 <th>Description</th>
-                ${isCustomerStatement ? "" : '<th class="num">Qty</th><th class="num">Amount</th><th class="num">GST</th><th class="num">Total</th>'}
+                ${isCustomerStatement ? "" : '<th>Vehicle No</th><th class="num">Qty</th><th class="num">Amount</th><th class="num">GST</th><th class="num">Total</th>'}
                 <th class="num">Credit</th>
                 <th class="num">Debit</th>
                 <th class="num">Balance</th>
@@ -124,7 +124,8 @@ function buildStatementHtml(statement) {
                     <td>${escapeHtml(row.date)}</td>
                     <td>${escapeHtml(row.reference)}</td>
                     <td>${escapeHtml(row.description)}</td>
-                    ${isCustomerStatement ? "" : `<td class="num">${escapeHtml(row.quantity ?? "")}</td>
+                    ${isCustomerStatement ? "" : `<td>${escapeHtml(row.vehicle ?? "")}</td>
+                    <td class="num">${escapeHtml(row.quantity ?? "")}</td>
                     <td class="num">${escapeHtml(row.amount ?? "")}</td>
                     <td class="num">${escapeHtml(row.gst ?? "")}</td>
                     <td class="num">${escapeHtml(row.total ?? "")}</td>`}
@@ -157,14 +158,14 @@ export function downloadStatementCsv(statement, prefix = "statement") {
   const rows = Array.isArray(statement?.rows) ? statement.rows : [];
   const isCustomerStatement = String(statement?.statementType || "").toUpperCase().includes("CUSTOMER");
   const headers = isCustomerStatement
-    ? ["Date", "Reference", "Description", "Credit", "Debit", "Balance"]
-    : ["Date", "Reference", "Description", "Quantity", "Amount", "GST", "Total", "Credit", "Debit", "Balance"];
+    ? ["Date", "Slip No", "Description", "Credit", "Debit", "Balance"]
+    : ["Date", "Slip No", "Description", "Vehicle No", "Quantity", "Amount", "GST", "Total", "Credit", "Debit", "Balance"];
   const lines = [
     headers.join(","),
     ...rows.map((row) =>
       (isCustomerStatement
         ? [row.date, row.reference, row.description, row.credit, row.debit, row.balance]
-        : [row.date, row.reference, row.description, row.quantity, row.amount, row.gst, row.total, row.credit, row.debit, row.balance])
+        : [row.date, row.reference, row.description, row.vehicle, row.quantity, row.amount, row.gst, row.total, row.credit, row.debit, row.balance])
         .map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`)
         .join(",")
     )
