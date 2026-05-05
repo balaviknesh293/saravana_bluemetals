@@ -806,7 +806,10 @@ async function getReport(type, dateRef, filters = {}) {
     return String(a.saleId || "").localeCompare(String(b.saleId || ""));
   });
 
-  const statementRows = filtered.map((row) => {
+  const salesBySaleRef = new Map(filtered.map((row) => [`SALE:${row.saleId}`, row]));
+  const salesBySlipNo = new Map(filtered.map((row) => [String(row.slipNo || "").trim(), row]));
+
+  let statementRows = filtered.map((row) => {
     const ledgerEntry =
       ledgerByReference.get(`SALE:${row.saleId}`) ||
       ledgerByReference.get(String(row.slipNo || "").trim()) ||
@@ -814,6 +817,7 @@ async function getReport(type, dateRef, filters = {}) {
     const fallbackCredit = String(row.type || "SALE").toUpperCase() === "PURCHASE" ? 0 : roundTo2(toNumber(row.total, 0));
     const fallbackDebit = String(row.type || "SALE").toUpperCase() === "PURCHASE" ? roundTo2(toNumber(row.total, 0)) : 0;
     return {
+      type: String(row.type || "SALE").toUpperCase(),
       date: row.date,
       reference: row.slipNo,
       description: row.product || row.material,
@@ -828,6 +832,37 @@ async function getReport(type, dateRef, filters = {}) {
       balance: row.balance
     };
   });
+
+  if (filters.customerId) {
+    const customerLedgerRows = ledgerRows
+      .filter((row) => row["Customer ID"] === filters.customerId)
+      .filter((row) => isWithinRange(String(row.Date || ""), start, end))
+      .sort((a, b) => {
+        const dateCompare = String(a.Date || "").localeCompare(String(b.Date || ""));
+        if (dateCompare !== 0) return dateCompare;
+        return String(a["Ledger ID"] || "").localeCompare(String(b["Ledger ID"] || ""));
+      });
+
+    statementRows = customerLedgerRows.map((ledgerRow) => {
+      const reference = String(ledgerRow.Reference || "").trim();
+      const linkedSale = salesBySaleRef.get(reference) || salesBySlipNo.get(reference);
+      return {
+        type: String(ledgerRow.Type || "").toUpperCase(),
+        date: String(ledgerRow.Date || ""),
+        reference: reference || String(ledgerRow["Ledger ID"] || ""),
+        description: linkedSale ? linkedSale.product || linkedSale.material : (ledgerRow.Notes || ledgerRow.Type || ""),
+        vehicle: linkedSale?.vehicle || "",
+        quantity: linkedSale?.quantity ?? "",
+        rate: linkedSale?.rate ?? "",
+        amount: linkedSale?.amount ?? "",
+        gst: linkedSale?.gst ?? "",
+        total: linkedSale?.total ?? "",
+        credit: roundTo2(toNumber(ledgerRow.Credit, 0)),
+        debit: roundTo2(toNumber(ledgerRow.Debit, 0)),
+        balance: roundTo2(toNumber(ledgerRow.Balance, 0))
+      };
+    });
+  }
 
   const totals = filtered.reduce(
     (acc, row) => {
@@ -896,10 +931,27 @@ async function getReport(type, dateRef, filters = {}) {
     }
   });
 
-  const normalizedRows = filtered.map((row) => ({
-    ...row,
-    balance: balanceBySaleId.get(row.saleId) ?? row.balance
-  }));
+  const normalizedRows = filters.customerId
+    ? statementRows.map((row) => ({
+      date: row.date,
+      slipNo: row.reference,
+      customerName: "",
+      vehicle: row.vehicle || "",
+      material: row.description || "",
+      quantity: row.quantity ?? "",
+      rate: row.rate ?? "",
+      amount: row.amount ?? "",
+      gst: row.gst ?? "",
+      total: row.total ?? "",
+      credit: row.credit ?? 0,
+      debit: row.debit ?? 0,
+      type: row.type || "",
+      balance: row.balance
+    }))
+    : filtered.map((row) => ({
+      ...row,
+      balance: balanceBySaleId.get(row.saleId) ?? row.balance
+    }));
 
   const statement = {
     companyName: "Saravana Blue Metals",
@@ -934,33 +986,68 @@ async function getCustomerStatement(customerId, fromDate, toDate) {
   const customer = await getCustomerById(customerId);
   if (!customer) throw new ApiError(404, "Customer not found.");
 
-  const rows = await sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER]);
-  const ledgerRows = rows
+  const [ledgerRaw, salesRows] = await Promise.all([
+    sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER]),
+    sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES])
+  ]);
+
+  const ledgerRows = ledgerRaw
     .filter((row) => row["Customer ID"] === customerId)
-    .sort((a, b) => {
-      const dateCompare = String(a.Date || "").localeCompare(String(b.Date || ""));
-      if (dateCompare !== 0) return dateCompare;
-      return String(a["Ledger ID"] || "").localeCompare(String(b["Ledger ID"] || ""));
+    .map((row) => ({
+      date: String(row.Date || "").trim(),
+      orderId: String(row["Ledger ID"] || ""),
+      reference: row.Reference || row["Ledger ID"] || "",
+      description: row.Notes || row.Type || "",
+      credit: roundTo2(toNumber(row.Credit, 0)),
+      debit: roundTo2(toNumber(row.Debit, 0))
+    }));
+
+  const ledgerRefSet = new Set(ledgerRows.map((row) => String(row.reference || "").trim()));
+
+  const salesFallbackRows = salesRows
+    .filter((row) => row["Customer ID"] === customerId)
+    .filter((row) => {
+      const saleIdRef = `SALE:${String(row["Sale ID"] || "").trim()}`;
+      const slipNoRef = String(row["Slip No"] || "").trim();
+      return !ledgerRefSet.has(saleIdRef) && !ledgerRefSet.has(slipNoRef);
+    })
+    .map((row) => {
+      const total = roundTo2(toNumber(row.Total, 0));
+      const isPurchase = String(row.Type || "").toUpperCase() === "PURCHASE";
+      return {
+        date: String(row.Date || "").trim(),
+        orderId: `SALE-${String(row["Sale ID"] || "")}`,
+        reference: `SALE:${String(row["Sale ID"] || "").trim()}`,
+        description: `${row.Material || row.Product || "Sale"} (${roundTo2(toNumber(row.Quantity, 0))} units)`,
+        credit: isPurchase ? 0 : total,
+        debit: isPurchase ? total : 0
+      };
     });
 
-  const start = fromDate || (ledgerRows[0]?.Date || formatDateISO(new Date()));
-  const end = toDate || (ledgerRows[ledgerRows.length - 1]?.Date || formatDateISO(new Date()));
+  const combinedRows = [...ledgerRows, ...salesFallbackRows].sort((a, b) => {
+    const dateCompare = String(a.date || "").localeCompare(String(b.date || ""));
+    if (dateCompare !== 0) return dateCompare;
+    return String(a.orderId || "").localeCompare(String(b.orderId || ""));
+  });
 
-  const filtered = ledgerRows.filter((row) => row.Date >= start && row.Date <= end);
-  const openingRows = ledgerRows.filter((row) => row.Date < start);
-  const openingBalance = openingRows.length ? roundTo2(toNumber(openingRows[openingRows.length - 1].Balance, 0)) : 0;
+  const start = fromDate || (combinedRows[0]?.date || formatDateISO(new Date()));
+  const end = toDate || (combinedRows[combinedRows.length - 1]?.date || formatDateISO(new Date()));
 
+  const openingBase = getOpeningBaseBalance(customerId);
+  const openingRows = combinedRows.filter((row) => row.date < start);
+  const openingDelta = openingRows.reduce((acc, row) => acc + row.credit - row.debit, 0);
+  const openingBalance = roundTo2(openingBase + openingDelta);
+
+  const filtered = combinedRows.filter((row) => row.date >= start && row.date <= end);
   let running = openingBalance;
   const statementRows = filtered.map((row) => {
-    const credit = roundTo2(toNumber(row.Credit, 0));
-    const debit = roundTo2(toNumber(row.Debit, 0));
-    running = roundTo2(running + credit - debit);
+    running = roundTo2(running + row.credit - row.debit);
     return {
-      date: row.Date,
-      reference: row.Reference || row["Ledger ID"],
-      description: row.Notes || row.Type || "",
-      credit,
-      debit,
+      date: row.date,
+      reference: row.reference,
+      description: row.description,
+      credit: row.credit,
+      debit: row.debit,
       balance: running
     };
   });

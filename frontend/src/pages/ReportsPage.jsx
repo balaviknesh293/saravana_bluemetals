@@ -69,6 +69,7 @@ function ReportsPage({ type }) {
 
   const columns = [
     { key: "date", label: "Date" },
+    { key: "type", label: "Type" },
     { key: "slipNo", label: "Slip No" },
     { key: "customerName", label: "Customer Name" },
     { key: "vehicle", label: "Vehicle No" },
@@ -77,6 +78,8 @@ function ReportsPage({ type }) {
     { key: "amount", label: "Amount" },
     { key: "gst", label: "GST" },
     { key: "total", label: "Total" },
+    { key: "credit", label: "Credit" },
+    { key: "debit", label: "Debit" },
     { key: "balance", label: "Balance" }
   ];
 
