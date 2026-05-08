@@ -317,30 +317,25 @@ class SheetsService {
       return;
     }
 
-    // Google Sheets row-level deleteDimension can become unreliable under heavy churn.
-    // Deterministic approach: read all data rows, filter out target row numbers, then rewrite.
-    const response = await this.client.spreadsheets.values.get({
+    const sheetId = await this.getSheetId(sheetName);
+    if (sheetId === undefined) return;
+
+    // Delete rows in descending order so index shifts do not affect subsequent deletes.
+    await this.client.spreadsheets.batchUpdate({
       spreadsheetId: this.spreadsheetId,
-      range: `${sheetName}!A2:ZZ`
+      requestBody: {
+        requests: normalized.map((rowNumber) => ({
+          deleteDimension: {
+            range: {
+              sheetId,
+              dimension: "ROWS",
+              startIndex: rowNumber - 1,
+              endIndex: rowNumber
+            }
+          }
+        }))
+      }
     });
-
-    const values = response.data.values || [];
-    const deleteSet = new Set(normalized);
-    const kept = values.filter((_, index) => !deleteSet.has(index + 2));
-
-    await this.client.spreadsheets.values.clear({
-      spreadsheetId: this.spreadsheetId,
-      range: `${sheetName}!A2:ZZ`
-    });
-
-    if (kept.length) {
-      await this.client.spreadsheets.values.update({
-        spreadsheetId: this.spreadsheetId,
-        range: `${sheetName}!A2`,
-        valueInputOption: "RAW",
-        requestBody: { values: kept }
-      });
-    }
 
     this.invalidateRowCache(sheetName);
   }
