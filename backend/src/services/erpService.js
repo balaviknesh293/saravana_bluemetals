@@ -577,8 +577,9 @@ async function getSales(date) {
   const customerMap = Object.fromEntries(customers.map((customer) => [customer.customerId, customer.name]));
 
   const filtered = date ? salesRows.filter((row) => row.Date === date) : salesRows;
+  const newestFirst = [...filtered].sort((a, b) => b.__rowNumber - a.__rowNumber);
 
-  return filtered.map((row) => ({
+  return newestFirst.map((row) => ({
     quantity: roundTo2(toNumber(row.Quantity)),
     rate: roundTo2(toNumber(row.Rate)),
     gst: row.GST === "" ? null : roundTo2(toNumber(row.GST, 0)),
