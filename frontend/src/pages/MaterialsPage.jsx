@@ -25,7 +25,7 @@ function MaterialsPage() {
     event.preventDefault();
     try {
       if (editingId) {
-        await api.put(`/materials/${editingId}`, { name, price: Number(price || 0), isActive: true });
+        await api.put(`/materials/${encodeURIComponent(editingId)}`, { name, price: Number(price || 0), isActive: true });
         toast.success("Material updated");
       } else {
         await api.post("/materials", { name, price: Number(price || 0), isActive: true });
@@ -42,7 +42,7 @@ function MaterialsPage() {
 
   async function remove(materialId) {
     try {
-      await api.delete(`/materials/${materialId}`);
+      await api.delete(`/materials/${encodeURIComponent(materialId)}`);
       toast.success("Material deleted");
       load();
     } catch (error) {

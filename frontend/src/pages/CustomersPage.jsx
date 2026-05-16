@@ -30,7 +30,7 @@ function CustomersPage() {
     event.preventDefault();
     try {
       if (editingId) {
-        await api.put(`/customers/${editingId}`, { ...form, balance: Number(form.balance || 0) });
+        await api.put(`/customers/${encodeURIComponent(editingId)}`, { ...form, balance: Number(form.balance || 0) });
         toast.success("Customer updated");
       } else {
         await api.post("/customers", { ...form, balance: Number(form.balance || 0) });
@@ -46,7 +46,7 @@ function CustomersPage() {
 
   async function remove(customerId) {
     try {
-      await api.delete(`/customers/${customerId}`);
+      await api.delete(`/customers/${encodeURIComponent(customerId)}`);
       toast.success("Customer deleted");
       loadCustomers();
     } catch (error) {
@@ -55,7 +55,7 @@ function CustomersPage() {
       if (status === 409) {
         const shouldCascade = window.confirm(`${message}\n\nDo you want to force delete customer with linked rows?`);
         if (shouldCascade) {
-          await api.delete(`/customers/${customerId}?force=true`);
+          await api.delete(`/customers/${encodeURIComponent(customerId)}?force=true`);
           toast.success("Customer and linked rows deleted");
           loadCustomers();
           return;

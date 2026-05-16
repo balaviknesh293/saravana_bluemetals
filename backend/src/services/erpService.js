@@ -114,17 +114,17 @@ async function updateCustomer(customerId, payload) {
 
 async function deleteCustomer(customerId, options = {}) {
   const cascade = Boolean(options.cascade);
-  const rows = await sheetsService.readRows(SHEETS.CUSTOMERS, HEADERS[SHEETS.CUSTOMERS]);
+  const rows = await sheetsService.readRows(SHEETS.CUSTOMERS, HEADERS[SHEETS.CUSTOMERS], { forceRefresh: true });
   const matches = rows
     .filter((row) => row["Customer ID"] === customerId)
     .sort((a, b) => b.__rowNumber - a.__rowNumber);
   if (!matches.length) throw new ApiError(404, "Customer not found.");
 
   const [salesRows, ledgerRows] = await Promise.all([
-    sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES]),
-    sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER])
+    sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES], { forceRefresh: true }),
+    sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER], { forceRefresh: true })
   ]);
-  const vehicleRows = await sheetsService.readRows(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES]);
+  const vehicleRows = await sheetsService.readRows(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES], { forceRefresh: true });
 
   const linkedSales = salesRows.filter((row) => row["Customer ID"] === customerId).length;
   const linkedLedger = ledgerRows.filter((row) => row["Customer ID"] === customerId).length;
@@ -220,11 +220,11 @@ async function updateVehicle(vehicleId, payload) {
 
 async function deleteVehicle(vehicleId, options = {}) {
   const cascade = Boolean(options.cascade);
-  const rows = await sheetsService.readRows(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES]);
+  const rows = await sheetsService.readRows(SHEETS.VEHICLES, HEADERS[SHEETS.VEHICLES], { forceRefresh: true });
   const target = rows.find((row) => row["Vehicle ID"] === vehicleId);
   if (!target) throw new ApiError(404, "Vehicle not found.");
 
-  const salesRows = await sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES]);
+  const salesRows = await sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES], { forceRefresh: true });
   const linkedSales = salesRows.filter(
     (row) => String(row.Vehicle || "").trim().toLowerCase() === String(target["Vehicle Number"]).trim().toLowerCase()
   ).length;
@@ -244,7 +244,7 @@ async function deleteVehicle(vehicleId, options = {}) {
     const saleRefs = new Set(matchedSales.map((row) => `SALE:${String(row["Sale ID"] || "").trim()}`));
     const impactedCustomers = new Set(matchedSales.map((row) => String(row["Customer ID"] || "").trim()).filter(Boolean));
 
-    const ledgerRows = await sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER]);
+    const ledgerRows = await sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER], { forceRefresh: true });
     const ledgerToDelete = ledgerRows
       .filter((row) => saleRefs.has(String(row.Reference || "").trim()))
       .map((row) => row.__rowNumber);
@@ -326,7 +326,7 @@ async function updateMaterial(materialId, payload) {
 }
 
 async function deleteMaterial(materialId) {
-  const rows = await sheetsService.readRows(SHEETS.MATERIALS, HEADERS[SHEETS.MATERIALS]);
+  const rows = await sheetsService.readRows(SHEETS.MATERIALS, HEADERS[SHEETS.MATERIALS], { forceRefresh: true });
   const target = rows.find((row) => row["Material ID"] === materialId);
   if (!target) throw new ApiError(404, "Material not found.");
 
@@ -394,8 +394,13 @@ async function recomputeCustomerBalanceFromLedger(customerId) {
     row.Balance = balance;
   }
 
-  for (const row of customerRows) {
-    await sheetsService.updateRow(SHEETS.LEDGER, row.__rowNumber, HEADERS[SHEETS.LEDGER], {
+  if (customerRows.length) {
+    await sheetsService.updateRows(
+      SHEETS.LEDGER,
+      HEADERS[SHEETS.LEDGER],
+      customerRows.map((row) => ({
+        rowNumber: row.__rowNumber,
+        rowObject: {
       Date: row.Date,
       "Ledger ID": row["Ledger ID"],
       "Customer ID": row["Customer ID"],
@@ -405,7 +410,9 @@ async function recomputeCustomerBalanceFromLedger(customerId) {
       Reference: row.Reference || "",
       Type: row.Type || "",
       Notes: row.Notes || ""
-    });
+        }
+      }))
+    );
   }
 
   await updateCustomerBalance(customerId, balance);
@@ -427,6 +434,7 @@ async function syncSalesBalancesFromLedger(customerId) {
   }
 
   const customerSales = salesRows.filter((row) => row["Customer ID"] === customerId);
+  const updates = [];
   for (const saleRow of customerSales) {
     const saleId = String(saleRow["Sale ID"] || "").trim();
     const slipNo = String(saleRow["Slip No"] || "").trim();
@@ -435,7 +443,9 @@ async function syncSalesBalancesFromLedger(customerId) {
       ledgerByReference.get(slipNo);
     if (nextBalance === undefined) continue;
 
-    await sheetsService.updateRow(SHEETS.SALES, saleRow.__rowNumber, HEADERS[SHEETS.SALES], {
+    updates.push({
+      rowNumber: saleRow.__rowNumber,
+      rowObject: {
       Date: saleRow.Date,
       "Slip No": saleRow["Slip No"],
       "Sale ID": saleRow["Sale ID"],
@@ -450,7 +460,11 @@ async function syncSalesBalancesFromLedger(customerId) {
       GST: saleRow.GST === "" ? "" : roundTo2(toNumber(saleRow.GST, 0)),
       Total: roundTo2(toNumber(saleRow.Total, 0)),
       Balance: nextBalance
+      }
     });
+  }
+  if (updates.length) {
+    await sheetsService.updateRows(SHEETS.SALES, HEADERS[SHEETS.SALES], updates);
   }
 }
 
@@ -566,7 +580,7 @@ async function createSale(payload) {
 }
 
 async function updateSale(saleId, payload) {
-  const salesRows = await sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES]);
+  const salesRows = await sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES], { forceRefresh: true });
   const target = salesRows.find((row) => row["Sale ID"] === saleId);
   if (!target) throw new ApiError(404, "Sale not found.");
 
@@ -577,7 +591,7 @@ async function updateSale(saleId, payload) {
     getCustomers(),
     getVehicles(),
     getMaterials(),
-    sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER])
+    sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER], { forceRefresh: true })
   ]);
 
   const transactionType = String(payload.transactionType || target.Type || "SALE").toLowerCase();
@@ -680,7 +694,7 @@ async function updateSale(saleId, payload) {
 }
 
 async function getSales(date) {
-  const salesRows = await sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES]);
+  const salesRows = await sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES], { forceRefresh: true });
   const customers = await getCustomers();
   const customerMap = Object.fromEntries(customers.map((customer) => [customer.customerId, customer.name]));
 
@@ -707,7 +721,7 @@ async function getSales(date) {
 }
 
 async function deleteSale(saleId) {
-  const salesRows = await sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES]);
+  const salesRows = await sheetsService.readRows(SHEETS.SALES, HEADERS[SHEETS.SALES], { forceRefresh: true });
   const target = salesRows.find((row) => row["Sale ID"] === saleId);
   if (!target) throw new ApiError(404, "Sale not found.");
 
@@ -716,7 +730,7 @@ async function deleteSale(saleId) {
     .filter((row) => row["Sale ID"] === saleId)
     .sort((a, b) => b.__rowNumber - a.__rowNumber);
 
-  const ledgerRows = await sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER]);
+  const ledgerRows = await sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER], { forceRefresh: true });
   let ledgerToDelete = ledgerRows
     .filter((row) => String(row.Reference || "").trim() === `SALE:${saleId}`)
     .sort((a, b) => b.__rowNumber - a.__rowNumber);

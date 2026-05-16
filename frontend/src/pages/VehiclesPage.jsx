@@ -28,7 +28,7 @@ function VehiclesPage() {
     event.preventDefault();
     try {
       if (editingId) {
-        await api.put(`/vehicles/${editingId}`, { vehicleNumber, customerId, type });
+        await api.put(`/vehicles/${encodeURIComponent(editingId)}`, { vehicleNumber, customerId, type });
         toast.success("Vehicle updated");
       } else {
         await api.post("/vehicles", { vehicleNumber, customerId, type });
@@ -46,7 +46,7 @@ function VehiclesPage() {
 
   async function remove(vehicleId) {
     try {
-      await api.delete(`/vehicles/${vehicleId}`);
+      await api.delete(`/vehicles/${encodeURIComponent(vehicleId)}`);
       toast.success("Vehicle deleted");
       loadVehicles();
     } catch (error) {
@@ -55,7 +55,7 @@ function VehiclesPage() {
       if (status === 409) {
         const shouldCascade = window.confirm(`${message}\n\nDo you want to force delete vehicle with linked sales?`);
         if (shouldCascade) {
-          await api.delete(`/vehicles/${vehicleId}?force=true`);
+          await api.delete(`/vehicles/${encodeURIComponent(vehicleId)}?force=true`);
           toast.success("Vehicle and linked sales deleted");
           loadVehicles();
           return;

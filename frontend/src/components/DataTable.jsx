@@ -16,6 +16,14 @@ function DataTable({ columns, rows, searchKeys = [] }) {
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const paginated = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const getRowKey = (row, rowIndex) =>
+    row.id ||
+    row.saleId ||
+    row.customerId ||
+    row.vehicleId ||
+    row.materialId ||
+    row.ledgerId ||
+    `${rowIndex}-${row.date || ""}-${row.slipNo || ""}`;
 
   return (
     <div className="glass rounded-2xl p-4">
@@ -45,7 +53,7 @@ function DataTable({ columns, rows, searchKeys = [] }) {
           </thead>
           <tbody>
             {paginated.map((row, rowIndex) => (
-              <tr key={`${rowIndex}-${row.id || rowIndex}`} className="border-b border-emerald-50 dark:border-emerald-900/50">
+              <tr key={getRowKey(row, rowIndex)} className="border-b border-emerald-50 dark:border-emerald-900/50">
                 {columns.map((column) => (
                   <td key={column.key} className="px-3 py-2 text-emerald-900 dark:text-emerald-100">
                     {column.render ? column.render(row) : row[column.key]}

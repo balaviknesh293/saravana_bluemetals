@@ -220,7 +220,7 @@ class SheetsService {
     this.ensuredHeaders.add(sheetName);
   }
 
-  async readRows(sheetName, headers) {
+  async readRows(sheetName, headers, options = {}) {
     if (this.useLocalStore) {
       return this.withLocalStoreLock(async () => {
         const store = await this.readLocalStoreUnsafe();
@@ -232,9 +232,12 @@ class SheetsService {
     }
 
     const key = this.cacheKey(sheetName, headers);
-    const cached = this.rowCache.get(key);
-    if (cached && Date.now() - cached.timestamp < this.rowCacheTtlMs) {
-      return cached.rows;
+    const forceRefresh = Boolean(options.forceRefresh);
+    if (!forceRefresh) {
+      const cached = this.rowCache.get(key);
+      if (cached && Date.now() - cached.timestamp < this.rowCacheTtlMs) {
+        return cached.rows;
+      }
     }
 
     await this.ensureSheetWithHeaders(sheetName, headers);
@@ -301,6 +304,43 @@ class SheetsService {
     this.invalidateRowCache(sheetName);
   }
 
+  async updateRows(sheetName, headers, updates) {
+    const normalized = Array.isArray(updates)
+      ? updates.filter((item) => Number.isInteger(Number(item?.rowNumber)) && Number(item.rowNumber) >= 2)
+      : [];
+    if (!normalized.length) return;
+
+    if (this.useLocalStore) {
+      await this.withLocalStoreLock(async () => {
+        const store = await this.readLocalStoreUnsafe();
+        this.ensureLocalSheet(store, sheetName, headers);
+        for (const item of normalized) {
+          const rowNumber = Number(item.rowNumber);
+          const index = rowNumber - 2;
+          if (index < 0 || index >= store[sheetName].rows.length) continue;
+          store[sheetName].rows[index] = headers.map((header) => item.rowObject?.[header] ?? "");
+        }
+        await this.writeLocalStoreUnsafe(store);
+      });
+      return;
+    }
+
+    await this.ensureSheetWithHeaders(sheetName, headers);
+    const data = normalized.map((item) => ({
+      range: `${sheetName}!A${Number(item.rowNumber)}`,
+      values: [headers.map((header) => item.rowObject?.[header] ?? "")]
+    }));
+
+    await this.executeWrite(() => this.client.spreadsheets.values.batchUpdate({
+      spreadsheetId: this.spreadsheetId,
+      requestBody: {
+        valueInputOption: "RAW",
+        data
+      }
+    }), `batch update rows ${sheetName} (${data.length})`);
+    this.invalidateRowCache(sheetName);
+  }
+
   async deleteRow(sheetName, rowNumber) {
     if (this.useLocalStore) {
       await this.withLocalStoreLock(async () => {
@@ -358,25 +398,28 @@ class SheetsService {
       return;
     }
 
-    const sheetId = await this.getSheetId(sheetName);
-    if (sheetId === undefined) return;
-
-    // Delete rows in descending order so index shifts do not affect subsequent deletes.
-    await this.executeWrite(() => this.client.spreadsheets.batchUpdate({
+    // Read/filter/rewrite avoids row-index drift when sheet has sparse/blank lines.
+    const response = await this.client.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      requestBody: {
-        requests: normalized.map((rowNumber) => ({
-          deleteDimension: {
-            range: {
-              sheetId,
-              dimension: "ROWS",
-              startIndex: rowNumber - 1,
-              endIndex: rowNumber
-            }
-          }
-        }))
-      }
-    }), `delete rows ${sheetName} (${normalized.length})`);
+      range: `${sheetName}!A2:ZZ`
+    });
+    const values = response.data.values || [];
+    const deleteSet = new Set(normalized);
+    const kept = values.filter((_, index) => !deleteSet.has(index + 2));
+
+    await this.executeWrite(() => this.client.spreadsheets.values.clear({
+      spreadsheetId: this.spreadsheetId,
+      range: `${sheetName}!A2:ZZ`
+    }), `clear rows before rewrite ${sheetName}`);
+
+    if (kept.length) {
+      await this.executeWrite(() => this.client.spreadsheets.values.update({
+        spreadsheetId: this.spreadsheetId,
+        range: `${sheetName}!A2`,
+        valueInputOption: "RAW",
+        requestBody: { values: kept }
+      }), `rewrite kept rows ${sheetName} (${kept.length})`);
+    }
 
     this.invalidateRowCache(sheetName);
   }

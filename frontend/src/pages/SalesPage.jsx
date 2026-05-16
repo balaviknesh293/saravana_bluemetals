@@ -82,7 +82,7 @@ function SalesPage() {
         gst: hasGst ? Number(form.gst || 0) : null
       };
       if (editingSaleId) {
-        await api.put(`/sales/${editingSaleId}`, payload);
+        await api.put(`/sales/${encodeURIComponent(editingSaleId)}`, payload);
       } else {
         await api.post("/sales", payload);
       }
@@ -104,7 +104,8 @@ function SalesPage() {
   async function removeSale(saleId) {
     if (!window.confirm(`Delete sale ${saleId}?`)) return;
     try {
-      await api.delete(`/sales/${saleId}`);
+      await api.delete(`/sales/${encodeURIComponent(saleId)}`);
+      setSales((current) => current.filter((row) => String(row.saleId || "") !== String(saleId || "")));
       toast.success("Sale deleted");
       loadSales();
     } catch (error) {
@@ -207,8 +208,12 @@ function SalesPage() {
                     transactionType: String(row.type || "SALE").toLowerCase(),
                     slipNo: row.slipNo || "",
                     customerId: row.customerId || "",
-                    vehicleId: vehicles.find((v) => v.vehicleNumber === row.vehicle)?.vehicleId || "",
-                    materialId: materials.find((m) => m.name === row.material)?.materialId || "",
+                    vehicleId:
+                      vehicles.find((v) => String(v.vehicleNumber || "").trim().toLowerCase() === String(row.vehicle || "").trim().toLowerCase())
+                        ?.vehicleId || "",
+                    materialId:
+                      materials.find((m) => String(m.name || "").trim().toLowerCase() === String(row.material || row.product || "").trim().toLowerCase())
+                        ?.materialId || "",
                     quantity: String(row.quantity ?? ""),
                     rate: String(row.rate ?? ""),
                     gst: row.gst === null || row.gst === undefined ? "" : String(row.gst)
