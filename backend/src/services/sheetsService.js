@@ -19,6 +19,47 @@ class SheetsService {
     this.ensuredHeaders = new Set();
     this.rowCache = new Map();
     this.rowCacheTtlMs = Number(process.env.SHEETS_ROW_CACHE_TTL_MS || 8000);
+    this.writeRetryMaxAttempts = Number(process.env.SHEETS_WRITE_MAX_RETRIES || 6);
+    this.writeRetryBaseDelayMs = Number(process.env.SHEETS_WRITE_BASE_DELAY_MS || 500);
+    this.writeRetryMaxDelayMs = Number(process.env.SHEETS_WRITE_MAX_DELAY_MS || 8000);
+  }
+
+  sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  isRetryableWriteError(error) {
+    const status = Number(error?.code || error?.status || error?.response?.status || 0);
+    const message = String(error?.message || error?.response?.data?.error?.message || "").toLowerCase();
+    if (status === 429) return true;
+    if (status === 503) return true;
+    if (status === 500) return true;
+    return (
+      message.includes("quota exceeded") ||
+      message.includes("rate limit") ||
+      message.includes("too many requests") ||
+      message.includes("write requests per minute per user")
+    );
+  }
+
+  async executeWrite(operation, contextLabel = "google sheets write") {
+    let attempt = 0;
+    while (attempt < this.writeRetryMaxAttempts) {
+      attempt += 1;
+      try {
+        return await operation();
+      } catch (error) {
+        const shouldRetry = this.isRetryableWriteError(error) && attempt < this.writeRetryMaxAttempts;
+        if (!shouldRetry) throw error;
+        const exponential = this.writeRetryBaseDelayMs * Math.pow(2, attempt - 1);
+        const jitter = Math.floor(Math.random() * 250);
+        const delayMs = Math.min(this.writeRetryMaxDelayMs, exponential + jitter);
+        console.warn(
+          `[SheetsService] ${contextLabel} throttled (attempt ${attempt}/${this.writeRetryMaxAttempts}). Retrying in ${delayMs}ms.`
+        );
+        await this.sleep(delayMs);
+      }
+    }
   }
 
   cacheKey(sheetName, headers) {
@@ -144,12 +185,12 @@ class SheetsService {
 
     if (!sheetExists) {
       try {
-        await this.client.spreadsheets.batchUpdate({
+        await this.executeWrite(() => this.client.spreadsheets.batchUpdate({
           spreadsheetId: this.spreadsheetId,
           requestBody: {
             requests: [{ addSheet: { properties: { title: sheetName } } }]
           }
-        });
+        }), `add sheet ${sheetName}`);
       } catch (error) {
         // Handle eventual consistency race where sheet was created by another request/process.
         if (!String(error.message || "").includes("already exists")) {
@@ -168,12 +209,12 @@ class SheetsService {
     const headersMismatch = !current.length || headers.some((header, index) => current[index] !== header);
 
     if (headersMismatch) {
-      await this.client.spreadsheets.values.update({
+      await this.executeWrite(() => this.client.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
         range: `${sheetName}!A1`,
         valueInputOption: "RAW",
         requestBody: { values: [headers] }
-      });
+      }), `update headers ${sheetName}`);
     }
 
     this.ensuredHeaders.add(sheetName);
@@ -224,13 +265,13 @@ class SheetsService {
 
     await this.ensureSheetWithHeaders(sheetName, headers);
 
-    await this.client.spreadsheets.values.append({
+    await this.executeWrite(() => this.client.spreadsheets.values.append({
       spreadsheetId: this.spreadsheetId,
       range: `${sheetName}!A:ZZ`,
       valueInputOption: "RAW",
       insertDataOption: "INSERT_ROWS",
       requestBody: { values: [row] }
-    });
+    }), `append row ${sheetName}`);
     this.invalidateRowCache(sheetName);
   }
 
@@ -251,12 +292,12 @@ class SheetsService {
 
     await this.ensureSheetWithHeaders(sheetName, headers);
 
-    await this.client.spreadsheets.values.update({
+    await this.executeWrite(() => this.client.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
       range: `${sheetName}!A${rowNumber}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] }
-    });
+    }), `update row ${sheetName}:${rowNumber}`);
     this.invalidateRowCache(sheetName);
   }
 
@@ -275,7 +316,7 @@ class SheetsService {
     const sheetId = await this.getSheetId(sheetName);
     if (sheetId === undefined) return;
 
-    await this.client.spreadsheets.batchUpdate({
+    await this.executeWrite(() => this.client.spreadsheets.batchUpdate({
       spreadsheetId: this.spreadsheetId,
       requestBody: {
         requests: [
@@ -291,7 +332,7 @@ class SheetsService {
           }
         ]
       }
-    });
+    }), `delete row ${sheetName}:${rowNumber}`);
     this.invalidateRowCache(sheetName);
   }
 
@@ -321,7 +362,7 @@ class SheetsService {
     if (sheetId === undefined) return;
 
     // Delete rows in descending order so index shifts do not affect subsequent deletes.
-    await this.client.spreadsheets.batchUpdate({
+    await this.executeWrite(() => this.client.spreadsheets.batchUpdate({
       spreadsheetId: this.spreadsheetId,
       requestBody: {
         requests: normalized.map((rowNumber) => ({
@@ -335,7 +376,7 @@ class SheetsService {
           }
         }))
       }
-    });
+    }), `delete rows ${sheetName} (${normalized.length})`);
 
     this.invalidateRowCache(sheetName);
   }
@@ -397,20 +438,20 @@ class SheetsService {
     for (const [sheetName, headers] of Object.entries(sheetHeadersMap)) {
       await this.ensureSheetWithHeaders(sheetName, headers);
 
-      await this.client.spreadsheets.values.clear({
+      await this.executeWrite(() => this.client.spreadsheets.values.clear({
         spreadsheetId: this.spreadsheetId,
         range: `${sheetName}!A2:ZZ`
-      });
+      }), `clear sheet rows ${sheetName}`);
 
       const rows = store[sheetName]?.rows || [];
       if (rows.length) {
-        await this.client.spreadsheets.values.append({
+        await this.executeWrite(() => this.client.spreadsheets.values.append({
           spreadsheetId: this.spreadsheetId,
           range: `${sheetName}!A2`,
           valueInputOption: "RAW",
           insertDataOption: "INSERT_ROWS",
           requestBody: { values: rows }
-        });
+        }), `sync append rows ${sheetName}`);
       }
 
       summary.push({ sheetName, rows: rows.length });
