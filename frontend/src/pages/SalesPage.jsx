@@ -189,6 +189,7 @@ function SalesPage() {
           { key: "type", label: "Type" },
           { key: "slipNo", label: "Slip No" },
           { key: "customerName", label: "Customer" },
+          { key: "vehicle", label: "Vehicle Number" },
           { key: "product", label: "Product" },
           { key: "quantity", label: "Qty" },
           { key: "rate", label: "Rate" },

@@ -234,14 +234,28 @@ async function deleteVehicle(vehicleId, options = {}) {
   }
 
   if (cascade && linkedSales > 0) {
-    const salesToDelete = salesRows
+    const matchedSales = salesRows
       .filter(
         (row) =>
           String(row.Vehicle || "").trim().toLowerCase() ===
           String(target["Vehicle Number"]).trim().toLowerCase()
-      )
+      );
+    const salesToDelete = matchedSales.map((row) => row.__rowNumber);
+    const saleRefs = new Set(matchedSales.map((row) => `SALE:${String(row["Sale ID"] || "").trim()}`));
+    const impactedCustomers = new Set(matchedSales.map((row) => String(row["Customer ID"] || "").trim()).filter(Boolean));
+
+    const ledgerRows = await sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER]);
+    const ledgerToDelete = ledgerRows
+      .filter((row) => saleRefs.has(String(row.Reference || "").trim()))
       .map((row) => row.__rowNumber);
+
     await sheetsService.deleteRows(SHEETS.SALES, salesToDelete);
+    await sheetsService.deleteRows(SHEETS.LEDGER, ledgerToDelete);
+
+    for (const customerId of impactedCustomers) {
+      await recomputeCustomerBalanceFromLedger(customerId);
+      await syncSalesBalancesFromLedger(customerId);
+    }
   }
 
   await sheetsService.deleteRow(SHEETS.VEHICLES, target.__rowNumber);
@@ -556,19 +570,113 @@ async function updateSale(saleId, payload) {
   const target = salesRows.find((row) => row["Sale ID"] === saleId);
   if (!target) throw new ApiError(404, "Sale not found.");
 
-  await deleteSale(saleId);
-  return createSale({
-    saleId,
-    date: payload.date ?? target.Date,
-    slipNo: payload.slipNo ?? target["Slip No"],
-    transactionType: String(payload.transactionType || target.Type || "SALE").toLowerCase(),
-    customerId: payload.customerId ?? target["Customer ID"],
-    vehicleId: payload.vehicleId || "",
-    materialId: payload.materialId || "",
-    quantity: payload.quantity ?? toNumber(target.Quantity, 0),
-    rate: payload.rate ?? toNumber(target.Rate, 0),
-    gst: payload.gst === undefined ? target.GST : payload.gst
+  const date = formatDateISO(payload.date ?? target.Date);
+  if (!date) throw new ApiError(400, "Invalid date.");
+
+  const [customers, vehicles, materials, ledgerRows] = await Promise.all([
+    getCustomers(),
+    getVehicles(),
+    getMaterials(),
+    sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER])
+  ]);
+
+  const transactionType = String(payload.transactionType || target.Type || "SALE").toLowerCase();
+  if (!["sale", "purchase"].includes(transactionType)) {
+    throw new ApiError(400, "transactionType must be either sale or purchase.");
+  }
+
+  const customerId = payload.customerId ?? target["Customer ID"];
+  const customer = customers.find((item) => item.customerId === customerId);
+  if (!customer) throw new ApiError(404, "Customer not found.");
+
+  let vehicle = null;
+  let material = null;
+  if (transactionType === "sale") {
+    vehicle = vehicles.find((item) => item.vehicleId === payload.vehicleId);
+    if (!vehicle) throw new ApiError(404, "Vehicle not found.");
+    material = materials.find((item) => item.materialId === payload.materialId && item.isActive);
+    if (!material) throw new ApiError(404, "Material not found or inactive.");
+  } else {
+    if (payload.vehicleId) {
+      vehicle = vehicles.find((item) => item.vehicleId === payload.vehicleId) || null;
+    }
+    if (payload.materialId) {
+      material = materials.find((item) => item.materialId === payload.materialId && item.isActive) || null;
+    }
+  }
+
+  const product = material?.name || "General Purchase";
+  const quantity = roundTo2(toNumber(payload.quantity ?? target.Quantity));
+  const rate = roundTo2(toNumber(payload.rate ?? target.Rate));
+  if (quantity <= 0 || rate <= 0) throw new ApiError(400, "Quantity and rate must be greater than 0.");
+
+  const amount = roundTo2(quantity * rate);
+  const incomingGst = payload.gst === undefined ? target.GST : payload.gst;
+  const gstProvided = incomingGst !== null && incomingGst !== undefined && incomingGst !== "";
+  const gst = gstProvided ? roundTo2(toNumber(incomingGst, 0)) : null;
+  const total = roundTo2(amount + (gst ?? 0));
+
+  const delta = transactionType === "purchase" ? -total : total;
+  const { credit, debit } = mapDeltaToCreditDebit(delta);
+
+  await sheetsService.updateRow(SHEETS.SALES, target.__rowNumber, HEADERS[SHEETS.SALES], {
+    Date: date,
+    "Slip No": payload.slipNo ?? target["Slip No"],
+    "Sale ID": saleId,
+    Type: transactionType.toUpperCase(),
+    "Customer ID": customer.customerId,
+    Product: product,
+    Vehicle: vehicle?.vehicleNumber || "",
+    Material: material?.name || "",
+    Quantity: quantity,
+    Rate: rate,
+    Amount: amount,
+    GST: gst === null ? "" : gst,
+    Total: total,
+    Balance: roundTo2(toNumber(target.Balance, 0))
   });
+
+  const previousCustomerId = String(target["Customer ID"] || "").trim();
+  const ledgerMatch = ledgerRows.find((row) => String(row.Reference || "").trim() === `SALE:${saleId}`);
+  if (ledgerMatch) {
+    await sheetsService.updateRow(SHEETS.LEDGER, ledgerMatch.__rowNumber, HEADERS[SHEETS.LEDGER], {
+      Date: date,
+      "Ledger ID": ledgerMatch["Ledger ID"],
+      "Customer ID": customer.customerId,
+      Credit: credit,
+      Debit: debit,
+      Balance: roundTo2(toNumber(ledgerMatch.Balance, 0)),
+      Reference: `SALE:${saleId}`,
+      Type: transactionType.toUpperCase(),
+      Notes:
+        transactionType === "sale"
+          ? `${product} (${quantity} units)`
+          : `Purchase: ${product} (${quantity} units)`
+    });
+  }
+
+  const impactedCustomers = new Set([previousCustomerId, customer.customerId].filter(Boolean));
+  for (const impactedCustomerId of impactedCustomers) {
+    await recomputeCustomerBalanceFromLedger(impactedCustomerId);
+    await syncSalesBalancesFromLedger(impactedCustomerId);
+  }
+
+  return {
+    saleId,
+    type: transactionType,
+    date,
+    slipNo: payload.slipNo ?? target["Slip No"],
+    customerId: customer.customerId,
+    customerName: customer.name,
+    vehicle: vehicle?.vehicleNumber || "",
+    product,
+    material: material?.name || "",
+    quantity,
+    rate,
+    amount,
+    gst,
+    total
+  };
 }
 
 async function getSales(date) {
