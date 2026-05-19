@@ -97,15 +97,18 @@ function ReportsPage({ type }) {
 
   return (
     <div className="space-y-4">
-      <div className="glass flex flex-col gap-3 rounded-2xl p-4 md:flex-row md:items-center md:justify-between">
+      <div className="glass flex flex-col gap-3 rounded-2xl p-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="text-lg font-semibold">{heading}</h2>
           <p className="text-xs text-emerald-700 dark:text-emerald-300">Horizontal bank-statement style export</p>
         </div>
-        <div className="w-full space-y-2 md:max-w-4xl">
-          <div className={`grid gap-2 ${isDaily ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+        <div className="w-full space-y-2 md:flex-1 md:max-w-none">
+          <div className={`grid gap-2 ${isDaily ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-3"}`}>
             {isDaily && (
-              <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <label className="block text-xs text-emerald-700 dark:text-emerald-300">
+                Date
+                <input className="input mt-1 w-full min-w-[180px]" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              </label>
             )}
             {!isDaily && (
               <>

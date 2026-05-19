@@ -3,6 +3,22 @@ const path = require("path");
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
+function sanitizeBrokenProxyEnv() {
+  const proxyKeys = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"];
+  const looksBroken = (value) => {
+    const text = String(value || "").trim().toLowerCase();
+    if (!text) return false;
+    return text.includes("127.0.0.1:9") || text.includes("localhost:9");
+  };
+  for (const key of proxyKeys) {
+    if (looksBroken(process.env[key])) {
+      delete process.env[key];
+    }
+  }
+}
+
+sanitizeBrokenProxyEnv();
+
 const app = require("./app");
 const { bootstrapSheets } = require("./services/bootstrapService");
 const sheetsService = require("./services/sheetsService");

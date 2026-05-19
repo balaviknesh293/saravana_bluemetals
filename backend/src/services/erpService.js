@@ -885,6 +885,25 @@ async function getLedger(customerId) {
   return withPrevious;
 }
 
+async function deleteLedgerEntry(ledgerId) {
+  const rows = await sheetsService.readRows(SHEETS.LEDGER, HEADERS[SHEETS.LEDGER], { forceRefresh: true });
+  const targets = rows.filter((row) => String(row["Ledger ID"] || "").trim() === String(ledgerId || "").trim());
+  if (!targets.length) throw new ApiError(404, "Ledger entry not found.");
+
+  const impactedCustomerIds = Array.from(new Set(targets.map((row) => String(row["Customer ID"] || "").trim()).filter(Boolean)));
+  await sheetsService.deleteRows(
+    SHEETS.LEDGER,
+    targets.map((row) => row.__rowNumber)
+  );
+
+  for (const customerId of impactedCustomerIds) {
+    await recomputeCustomerBalanceFromLedger(customerId);
+    await syncSalesBalancesFromLedger(customerId);
+  }
+
+  return { ledgerId, deletedRows: targets.length, impactedCustomerIds };
+}
+
 function rangeFromType(type, dateRef) {
   const baseDate = dateRef ? new Date(dateRef) : new Date();
   if (Number.isNaN(baseDate.getTime())) throw new ApiError(400, "Invalid report date.");
@@ -969,10 +988,11 @@ async function getReport(type, dateRef, filters = {}) {
     statementRows = customerLedgerRows.map((ledgerRow) => {
       const reference = String(ledgerRow.Reference || "").trim();
       const linkedSale = salesBySaleRef.get(reference) || salesBySlipNo.get(reference);
+      const slipNo = String(linkedSale?.slipNo || "").trim();
       return {
         type: String(ledgerRow.Type || "").toUpperCase(),
         date: String(ledgerRow.Date || ""),
-        reference: reference || String(ledgerRow["Ledger ID"] || ""),
+        reference: slipNo || reference || String(ledgerRow["Ledger ID"] || ""),
         description: linkedSale ? linkedSale.product || linkedSale.material : (ledgerRow.Notes || ledgerRow.Type || ""),
         vehicle: linkedSale?.vehicle || "",
         quantity: linkedSale?.quantity ?? "",
@@ -1125,6 +1145,16 @@ async function getCustomerStatement(customerId, fromDate, toDate) {
       debit: roundTo2(toNumber(row.Debit, 0))
     }));
 
+  const saleBySaleRef = new Map();
+  const saleBySlipRef = new Map();
+  for (const row of salesRows) {
+    if (String(row["Customer ID"] || "").trim() !== String(customerId || "").trim()) continue;
+    const saleRef = `SALE:${String(row["Sale ID"] || "").trim()}`;
+    const slipRef = String(row["Slip No"] || "").trim();
+    saleBySaleRef.set(saleRef, row);
+    if (slipRef) saleBySlipRef.set(slipRef, row);
+  }
+
   const ledgerRefSet = new Set(ledgerRows.map((row) => String(row.reference || "").trim()));
 
   const salesFallbackRows = salesRows
@@ -1140,7 +1170,7 @@ async function getCustomerStatement(customerId, fromDate, toDate) {
       return {
         date: String(row.Date || "").trim(),
         orderId: `SALE-${String(row["Sale ID"] || "")}`,
-        reference: `SALE:${String(row["Sale ID"] || "").trim()}`,
+        reference: String(row["Slip No"] || "").trim() || `SALE:${String(row["Sale ID"] || "").trim()}`,
         description: `${row.Material || row.Product || "Sale"} (${roundTo2(toNumber(row.Quantity, 0))} units)`,
         credit: isPurchase ? 0 : total,
         debit: isPurchase ? total : 0
@@ -1164,10 +1194,13 @@ async function getCustomerStatement(customerId, fromDate, toDate) {
   const filtered = combinedRows.filter((row) => row.date >= start && row.date <= end);
   let running = openingBalance;
   const statementRows = filtered.map((row) => {
+    const normalizedReference = String(row.reference || "").trim();
+    const linkedSale = saleBySaleRef.get(normalizedReference) || saleBySlipRef.get(normalizedReference);
+    const slipNo = String(linkedSale?.["Slip No"] || "").trim();
     running = roundTo2(running + row.credit - row.debit);
     return {
       date: row.date,
-      reference: row.reference,
+      reference: slipNo || row.reference,
       description: row.description,
       credit: row.credit,
       debit: row.debit,
@@ -1260,6 +1293,7 @@ module.exports = {
   getSales,
   recordPayment,
   addLedgerEntry,
+  deleteLedgerEntry,
   getLedger,
   getReport,
   getCustomerStatement,

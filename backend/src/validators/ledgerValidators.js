@@ -24,4 +24,8 @@ const ledgerCustomerValidator = [
   param("customerId").trim().notEmpty().withMessage("Customer ID is required.")
 ];
 
-module.exports = { paymentValidator, ledgerEntryValidator, ledgerCustomerValidator };
+const ledgerIdValidator = [
+  param("ledgerId").trim().notEmpty().withMessage("Ledger ID is required.")
+];
+
+module.exports = { paymentValidator, ledgerEntryValidator, ledgerCustomerValidator, ledgerIdValidator };

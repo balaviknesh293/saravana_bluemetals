@@ -6,6 +6,8 @@ import DataTable from "../components/DataTable";
 
 function BalancePage() {
   const [customers, setCustomers] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [historyCustomerId, setHistoryCustomerId] = useState("");
   const [form, setForm] = useState({
     customerId: "",
     entryType: "debit",
@@ -22,8 +24,17 @@ function BalancePage() {
       .catch((error) => toast.error(error.response?.data?.message || "Failed to load balances"));
   }
 
+  function loadHistory(customerId = "") {
+    const query = customerId ? `?customerId=${encodeURIComponent(customerId)}` : "";
+    api
+      .get(`/ledger/all${query}`)
+      .then((response) => setHistory(response.data.ledger || []))
+      .catch((error) => toast.error(error.response?.data?.message || "Failed to load balance history"));
+  }
+
   useEffect(() => {
     loadCustomers();
+    loadHistory();
   }, []);
 
   async function submit(event) {
@@ -43,8 +54,21 @@ function BalancePage() {
       toast.success(`${form.entryType.toUpperCase()} recorded`);
       setForm((current) => ({ ...current, amount: "", reference: "", notes: "" }));
       loadCustomers();
+      loadHistory(historyCustomerId);
     } catch (error) {
       toast.error(error.response?.data?.message || "Payment failed");
+    }
+  }
+
+  async function removeHistoryRow(ledgerId) {
+    if (!window.confirm(`Delete balance history record ${ledgerId}?`)) return;
+    try {
+      await api.delete(`/ledger/${encodeURIComponent(ledgerId)}`);
+      toast.success("Balance history record deleted");
+      loadCustomers();
+      loadHistory(historyCustomerId);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to delete history record");
     }
   }
 
@@ -78,6 +102,51 @@ function BalancePage() {
         rows={customers}
         searchKeys={["customerId", "name", "phone"]}
       />
+
+      <div className="glass space-y-3 rounded-2xl p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center">
+          <h3 className="text-base font-semibold text-emerald-900 dark:text-emerald-100">Balance History</h3>
+          <select
+            className="input md:max-w-xs"
+            value={historyCustomerId}
+            onChange={(e) => {
+              const next = e.target.value;
+              setHistoryCustomerId(next);
+              loadHistory(next);
+            }}
+          >
+            <option value="">All Customers</option>
+            {customers.map((customer) => (
+              <option key={customer.customerId} value={customer.customerId}>{customer.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <DataTable
+          columns={[
+            { key: "date", label: "Date" },
+            { key: "ledgerId", label: "Ledger ID" },
+            { key: "customerName", label: "Customer" },
+            { key: "type", label: "Type" },
+            { key: "reference", label: "Reference" },
+            { key: "credit", label: "Credit" },
+            { key: "debit", label: "Debit" },
+            { key: "balance", label: "Balance" },
+            { key: "notes", label: "Notes" },
+            {
+              key: "actions",
+              label: "Actions",
+              render: (row) => (
+                <button type="button" className="btn-secondary !px-2 !py-1" onClick={() => removeHistoryRow(row.ledgerId)}>
+                  Delete
+                </button>
+              )
+            }
+          ]}
+          rows={history}
+          searchKeys={["ledgerId", "customerName", "type", "reference", "notes", "date"]}
+        />
+      </div>
     </div>
   );
 }
