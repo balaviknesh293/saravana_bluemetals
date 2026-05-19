@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
+import { CalendarDaysIcon } from "@heroicons/react/24/outline";
 
 import api from "../api/client";
 import DataTable from "../components/DataTable";
@@ -116,7 +117,16 @@ function SalesPage() {
   return (
     <div className="space-y-4">
       <form className="glass grid gap-3 rounded-2xl p-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={submit}>
-        <input className="input" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} required />
+        <div className="relative">
+          <input
+            className="input sales-date-input pr-10"
+            type="date"
+            value={form.date}
+            onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+            required
+          />
+          <CalendarDaysIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-700 dark:text-emerald-200" />
+        </div>
         <select className="input" value={form.transactionType} onChange={(e) => setForm((f) => ({ ...f, transactionType: e.target.value }))}>
           <option value="sale">Sale</option>
           <option value="purchase">Purchase</option>

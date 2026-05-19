@@ -44,6 +44,20 @@ h6 {
   @apply w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-emerald-900 outline-none transition focus:border-emerald-500 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-50;
 }
 
+.dark .input[type="date"] {
+  color-scheme: dark;
+}
+
+.dark .input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.2);
+  opacity: 0.95;
+}
+
+.sales-date-input::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  cursor: pointer;
+}
+
 .btn {
   @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition;
 }
