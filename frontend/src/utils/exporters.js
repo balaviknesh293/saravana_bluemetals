@@ -76,19 +76,19 @@ function buildStatementHtml(statement) {
         <style>
           @page { size: A4 portrait; margin: 16mm; }
           body { font-family: "Segoe UI", Arial, sans-serif; color: #0b0b0b; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          .card { border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; }
-          .header { padding: 14px 16px; border-bottom: 1px solid #cbd5e1; }
+          .card { border: 1.5px solid #334155; border-radius: 8px; overflow: hidden; }
+          .header { padding: 14px 16px; border-bottom: 1.5px solid #334155; }
           .title { margin: 0; font-size: 18px; font-weight: 700; }
           .sub { margin: 4px 0 0; font-size: 12px; color: #111827; font-weight: 600; }
-          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; font-size: 12px; color: #111827; }
+          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; padding: 12px 16px; border-bottom: 1.25px solid #334155; font-size: 12px; color: #111827; }
           .label { color: #111827; margin-right: 4px; font-weight: 700; }
           table { width: 100%; border-collapse: collapse; font-size: 12px; color: #0b0b0b; }
-          th, td { border: 1px solid #cbd5e1; padding: 6px; text-align: left; vertical-align: top; font-weight: 600; }
-          th { background: #eef2f7; font-weight: 700; }
+          th, td { border: 1.25px solid #334155; padding: 6px; text-align: left; vertical-align: top; font-weight: 600; }
+          th { background: #dbe4ee; font-weight: 700; }
           .num { text-align: right; }
-          .totals { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-top: 1px solid #cbd5e1; }
+          .totals { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-top: 1.5px solid #334155; }
           .totals .left, .totals .right { padding: 10px 16px; font-size: 12px; }
-          .totals .right { border-left: 1px solid #cbd5e1; }
+          .totals .right { border-left: 1.5px solid #334155; }
           .line { display: flex; justify-content: space-between; margin-bottom: 4px; }
           .line strong { font-weight: 700; }
         </style>

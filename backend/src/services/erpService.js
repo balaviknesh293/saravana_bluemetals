@@ -958,6 +958,8 @@ async function getReport(type, dateRef, filters = {}) {
       null;
     const fallbackCredit = String(row.type || "SALE").toUpperCase() === "PURCHASE" ? 0 : roundTo2(toNumber(row.total, 0));
     const fallbackDebit = String(row.type || "SALE").toUpperCase() === "PURCHASE" ? roundTo2(toNumber(row.total, 0)) : 0;
+    const resolvedCredit = ledgerEntry ? ledgerEntry.credit : fallbackCredit;
+    const resolvedDebit = ledgerEntry ? ledgerEntry.debit : fallbackDebit;
     return {
       type: String(row.type || "SALE").toUpperCase(),
       date: row.date,
@@ -966,11 +968,11 @@ async function getReport(type, dateRef, filters = {}) {
       vehicle: row.vehicle || "",
       quantity: row.quantity,
       rate: row.rate,
-      amount: row.amount,
+      amount: roundTo2(resolvedCredit - resolvedDebit),
       gst: row.gst ?? "",
       total: row.total,
-      credit: ledgerEntry ? ledgerEntry.credit : fallbackCredit,
-      debit: ledgerEntry ? ledgerEntry.debit : fallbackDebit,
+      credit: resolvedCredit,
+      debit: resolvedDebit,
       balance: row.balance
     };
   });
@@ -989,6 +991,8 @@ async function getReport(type, dateRef, filters = {}) {
       const reference = String(ledgerRow.Reference || "").trim();
       const linkedSale = salesBySaleRef.get(reference) || salesBySlipNo.get(reference);
       const slipNo = String(linkedSale?.slipNo || "").trim();
+      const credit = roundTo2(toNumber(ledgerRow.Credit, 0));
+      const debit = roundTo2(toNumber(ledgerRow.Debit, 0));
       return {
         type: String(ledgerRow.Type || "").toUpperCase(),
         date: String(ledgerRow.Date || ""),
@@ -997,11 +1001,11 @@ async function getReport(type, dateRef, filters = {}) {
         vehicle: linkedSale?.vehicle || "",
         quantity: linkedSale?.quantity ?? "",
         rate: linkedSale?.rate ?? "",
-        amount: linkedSale?.amount ?? "",
+        amount: roundTo2(credit - debit),
         gst: linkedSale?.gst ?? "",
         total: linkedSale?.total ?? "",
-        credit: roundTo2(toNumber(ledgerRow.Credit, 0)),
-        debit: roundTo2(toNumber(ledgerRow.Debit, 0)),
+        credit,
+        debit,
         balance: roundTo2(toNumber(ledgerRow.Balance, 0))
       };
     });
@@ -1024,6 +1028,7 @@ async function getReport(type, dateRef, filters = {}) {
     },
     { credit: 0, debit: 0 }
   );
+  const reportAmountTotal = roundTo2(creditDebitTotals.credit - creditDebitTotals.debit);
 
   const firstRow = filtered[0] || null;
   const manualOpeningTypes = new Set(["CREDIT", "DEBIT", "PAYMENT"]);
@@ -1091,9 +1096,13 @@ async function getReport(type, dateRef, filters = {}) {
       type: row.type || "",
       balance: row.balance
     }))
-    : filtered.map((row) => ({
+    : filtered.map((row, index) => ({
       ...row,
-      balance: balanceBySaleId.get(row.saleId) ?? row.balance
+      amount: statementRows[index]?.amount ?? row.amount,
+      credit: statementRows[index]?.credit ?? row.credit ?? 0,
+      debit: statementRows[index]?.debit ?? row.debit ?? 0,
+      type: statementRows[index]?.type || row.type || "",
+      balance: balanceBySaleId.get(row.saleId) ?? statementRows[index]?.balance ?? row.balance
     }));
 
   const statement = {
@@ -1105,7 +1114,7 @@ async function getReport(type, dateRef, filters = {}) {
     closingBalance,
     rows: statementRows,
     totals: {
-      amount: roundTo2(totals.amount),
+      amount: reportAmountTotal,
       gst: roundTo2(totals.gst),
       total: roundTo2(totals.total),
       credit: roundTo2(creditDebitTotals.credit),
@@ -1117,7 +1126,7 @@ async function getReport(type, dateRef, filters = {}) {
     range: { start, end },
     rows: normalizedRows,
     totals: {
-      amount: roundTo2(totals.amount),
+      amount: reportAmountTotal,
       gst: roundTo2(totals.gst),
       total: roundTo2(totals.total)
     },
